@@ -12,6 +12,7 @@ __pycache__/
 /.apitest/
 /.uitest/
 /.uidemo/
+/.m4test/
 /.apitest-server.*
 
 # OS

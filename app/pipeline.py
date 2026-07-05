@@ -13,10 +13,11 @@ truyền Fake*, còn CLI thật truyền Real*.
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .models import MAX_TAKES, Line, Merged, Project, Take, Word
+from .models import MAX_TAKES, Fragment, Line, Merged, Project, Take, Word
 
 
 def _now() -> str:
@@ -65,6 +66,65 @@ def _prune_takes(ep: Path, fragment) -> None:
             fragment.selected_take_id = (
                 fragment.takes[-1].id if fragment.takes else None
             )
+
+
+def discard_takes(ep: Path, fragment: Fragment) -> None:
+    """Xóa mọi take (wav + thư mục) của fragment, reset selected. Dùng khi
+    split/merge fragment — audio cũ đọc theo ranh giới cũ, không còn hợp lệ."""
+    for t in fragment.takes:
+        (ep / t.wav).unlink(missing_ok=True)
+    d = ep / "assets" / "vo" / ".takes" / fragment.id
+    if d.exists():
+        shutil.rmtree(d, ignore_errors=True)
+    fragment.takes = []
+    fragment.selected_take_id = None
+
+
+def _new_fragment_id(line: Line) -> str:
+    """id mới không đụng seq đang có trong line (ổn định, không tái đánh số cũ)."""
+    maxn = -1
+    for f in line.fragments:
+        tail = f.id.rsplit("-", 1)[-1]
+        if tail.isdigit():
+            maxn = max(maxn, int(tail))
+    return f"f-{line.frame}-{maxn + 1}"
+
+
+def split_fragment(ep: Path, line: Line, fragment_id: str,
+                   char_index: int) -> tuple[Fragment, Fragment]:
+    """Tách 1 fragment tại vị trí con trỏ -> 2 fragment. VỨT take cả hai (phương
+    án a). Xóa line.merged (tập fragment đã đổi)."""
+    i = next((k for k, f in enumerate(line.fragments) if f.id == fragment_id), None)
+    if i is None:
+        raise ValueError(f"fragment không thuộc line: {fragment_id}")
+    frag = line.fragments[i]
+    text = frag.text
+    idx = max(0, min(char_index, len(text)))
+    left, right = text[:idx].strip(), text[idx:].strip()
+    if not left or not right:
+        raise ValueError("vị trí tách tạo ra phần rỗng — đặt con trỏ giữa câu")
+    discard_takes(ep, frag)
+    frag.text = left
+    new_frag = Fragment(id=_new_fragment_id(line), text=right)
+    line.fragments.insert(i + 1, new_frag)
+    line.merged = None
+    return frag, new_frag
+
+
+def merge_fragment_next(ep: Path, line: Line, fragment_id: str) -> Fragment:
+    """Gộp fragment với fragment liền kề DƯỚI. VỨT take cả hai. Xóa line.merged."""
+    i = next((k for k, f in enumerate(line.fragments) if f.id == fragment_id), None)
+    if i is None:
+        raise ValueError(f"fragment không thuộc line: {fragment_id}")
+    if i + 1 >= len(line.fragments):
+        raise ValueError("không có fragment kế dưới để gộp")
+    a, b = line.fragments[i], line.fragments[i + 1]
+    discard_takes(ep, a)
+    discard_takes(ep, b)
+    a.text = f"{a.text} {b.text}".strip()
+    line.fragments.pop(i + 1)
+    line.merged = None
+    return a
 
 
 def merge_line(project: Project, ep: Path, line: Line, cfg: dict) -> Merged:

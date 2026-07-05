@@ -101,6 +101,7 @@ function renderMain() {
   }
   const line = state.project.lines.find((l) => l.frame === state.selectedFrame);
   if (!line) return;
+  const active = line.fragments.filter((f) => !f.orphan);
 
   main.append(
     el("div", { class: "line-head" }, [
@@ -120,14 +121,11 @@ function renderMain() {
     main.append(el("div", { class: "line-sub muted",
       text: `đã merge → ${line.merged.wav} (${line.merged.duration_s}s, ${line.merged.words.length} từ)` }));
 
-  for (const frag of line.fragments) {
-    if (frag.orphan) continue;
-    main.append(renderFragment(frag));
-  }
+  active.forEach((frag, i) => main.append(renderFragment(frag, i === active.length - 1)));
   main.scrollTop = scroll;
 }
 
-function renderFragment(frag) {
+function renderFragment(frag, isLast) {
   const textArea = el("textarea", { class: "frag-text" });
   textArea.value = frag.text;
   textArea.addEventListener("blur", () => {
@@ -153,6 +151,10 @@ function renderFragment(frag) {
       el("span", { class: "frag-id", text: frag.id }),
       frag.stale ? el("span", { class: "badge warn", text: "⚠ take lệch text hiện tại" }) : null,
       el("button", { text: "↻ Generate", onclick: () => generate({ fragment_ids: [frag.id] }) }),
+      el("button", { class: "ghost", text: "✂ Split", title: "tách tại vị trí con trỏ trong ô text",
+        onclick: () => splitFragment(frag.id, textArea.selectionStart) }),
+      isLast ? null : el("button", { class: "ghost", text: "⌄ Gộp dưới",
+        onclick: () => mergeNext(frag.id) }),
     ]),
     renderTakes(frag),
   ]);
@@ -203,6 +205,21 @@ async function editGap(fid, val) {
     await putJSON("/api/fragments/text", body);
     await loadState(state.ep);
   } catch (e) { toast("Sửa gap lỗi: " + e.message, true); }
+}
+async function splitFragment(fid, charIndex) {
+  try {
+    const r = await postJSON("/api/fragments/split",
+      { ep: state.ep, fragment_id: fid, char_index: charIndex });
+    toast(`Tách → ${r.fragments.join(" + ")} (take cũ bị xóa)`);
+    await loadState(state.ep);
+  } catch (e) { toast("Split lỗi: " + e.message, true); }
+}
+async function mergeNext(fid) {
+  try {
+    await postJSON("/api/fragments/merge-next", { ep: state.ep, fragment_id: fid });
+    toast("Đã gộp với fragment dưới (take cũ bị xóa)");
+    await loadState(state.ep);
+  } catch (e) { toast("Gộp lỗi: " + e.message, true); }
 }
 async function selectTake(fid, tid) {
   try {

@@ -9,11 +9,18 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import config, store
+from .. import config, pipeline, store
 from ..jobs import ep_lock
 from .projects import resolve_ep
 
 router = APIRouter(prefix="/api", tags=["lines"])
+
+
+def _line_of(project, fragment_id: str):
+    for line in project.lines:
+        if any(f.id == fragment_id for f in line.fragments):
+            return line
+    return None
 
 
 class FragmentEdit(BaseModel):
@@ -52,6 +59,51 @@ async def edit_fragment(body: FragmentEdit) -> dict:
         return {"fragment_id": frag.id, "text": frag.text,
                 "tts_text": frag.tts_text, "gap_s": frag.gap_s,
                 "stale": frag.is_stale(default_gap)}
+
+
+class SplitBody(BaseModel):
+    ep: str
+    fragment_id: str
+    char_index: int   # vị trí con trỏ trong text để tách
+
+
+@router.post("/fragments/split")
+async def split_fragment(body: SplitBody) -> dict:
+    ep = resolve_ep(body.ep)
+    async with ep_lock(ep):
+        project = store.load(ep)
+        line = _line_of(project, body.fragment_id)
+        if line is None:
+            raise HTTPException(404, f"fragment không tồn tại: {body.fragment_id}")
+        try:
+            frag, new_frag = pipeline.split_fragment(
+                ep, line, body.fragment_id, body.char_index)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        store.save(ep, project)
+    return {"frame": line.frame, "fragments": [frag.id, new_frag.id],
+            "texts": [frag.text, new_frag.text]}
+
+
+class MergeFragBody(BaseModel):
+    ep: str
+    fragment_id: str   # gộp fragment này với fragment liền kề DƯỚI
+
+
+@router.post("/fragments/merge-next")
+async def merge_fragment_next(body: MergeFragBody) -> dict:
+    ep = resolve_ep(body.ep)
+    async with ep_lock(ep):
+        project = store.load(ep)
+        line = _line_of(project, body.fragment_id)
+        if line is None:
+            raise HTTPException(404, f"fragment không tồn tại: {body.fragment_id}")
+        try:
+            frag = pipeline.merge_fragment_next(ep, line, body.fragment_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        store.save(ep, project)
+    return {"frame": line.frame, "fragment_id": frag.id, "text": frag.text}
 
 
 class LineMeta(BaseModel):
