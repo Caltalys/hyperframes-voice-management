@@ -10,7 +10,8 @@ Thiết kế đầy đủ: [DESIGN.md](DESIGN.md).
 
 - **M0** — xương sống engine + CLI. ✓
 - **M2** — FastAPI + job queue async + SSE (generate/align async). ✓
-- **M3+** — web UI. (chưa)
+- **M3** — web UI: rail line, fragment, sửa text/gap, generate (SSE), so 2 take + waveform, chọn take, merge line, export. ✓
+- **M4+** — split/merge fragment, re-import diff/orphan. (chưa)
 
 ## Cài đặt
 

@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from .jobs import manager
-from .routers import export, jobs, projects, takes
+from .routers import export, jobs, lines, projects, takes
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="VO Studio", version="0.0.1", lifespan=lifespan)
 
 app.include_router(projects.router)
+app.include_router(lines.router)
 app.include_router(takes.router)
 app.include_router(export.router)
 app.include_router(jobs.router)

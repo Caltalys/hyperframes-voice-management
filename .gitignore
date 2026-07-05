@@ -10,6 +10,8 @@ __pycache__/
 /scratch/
 /.smoke/
 /.apitest/
+/.uitest/
+/.uidemo/
 /.apitest-server.*
 
 # OS

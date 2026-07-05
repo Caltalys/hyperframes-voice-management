@@ -4,25 +4,42 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VO Studio</title>
-  <style>
-    body { font: 15px/1.5 system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; }
-    code { background: #f4f4f5; padding: 2px 6px; border-radius: 4px; }
-    .muted { color: #71717a; }
-  </style>
+  <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <h1>VO Studio <span class="muted">— backend M2</span></h1>
-  <p>API đang chạy. Giao diện đầy đủ đến ở milestone M3.</p>
-  <p class="muted">Kiểm tra nhanh:</p>
-  <ul>
-    <li><a href="/api/health">/api/health</a></li>
-    <li><a href="/docs">/docs</a> — OpenAPI (Swagger)</li>
-    <li><code>GET /api/jobs/stream</code> — SSE tiến độ generate</li>
-  </ul>
-  <p id="health" class="muted">…</p>
-  <script>
-    fetch("/api/health").then(r => r.json())
-      .then(d => document.getElementById("health").textContent = "health: " + JSON.stringify(d));
-  </script>
+  <header class="topbar">
+    <div class="brand">VO Studio</div>
+    <div class="project-open">
+      <input id="ep-input" list="recent-list" placeholder="đường dẫn thư mục tập (có SCRIPT.md)…" />
+      <datalist id="recent-list"></datalist>
+      <button id="btn-open">Mở</button>
+      <button id="btn-import" class="ghost">Import SCRIPT.md</button>
+    </div>
+    <div class="spacer"></div>
+    <div id="voice-label" class="voice muted">voice: …</div>
+    <div class="exports">
+      <button id="btn-export-meta" class="ghost" disabled>Export audio_meta</button>
+      <button id="btn-export-script" class="ghost" disabled>Export SCRIPT.md</button>
+    </div>
+  </header>
+
+  <div id="job-bar" class="job-bar hidden">
+    <div class="job-fill" id="job-fill"></div>
+    <span id="job-text" class="job-text"></span>
+  </div>
+
+  <main class="layout">
+    <aside id="rail" class="rail">
+      <div class="rail-empty muted">Mở hoặc import một tập để bắt đầu.</div>
+    </aside>
+    <section id="main" class="main">
+      <div class="main-empty muted">Chọn một line ở cột trái.</div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/waveform.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>

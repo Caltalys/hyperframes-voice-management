@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "vo-studio",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VO_STUDIO_ENGINE=fake&& set PYTHONUTF8=1&& .venv\\Scripts\\python -m uvicorn app.main:app --port 8000 --log-level warning"
+      ],
+      "port": 8000
+    }
+  ]
+}
