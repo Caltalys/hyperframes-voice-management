@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Tool state (generated per-episode, lives next to SCRIPT.md, not in this repo)
+# but ignore any local scratch
+/scratch/
+/.smoke/
+
+# OS
+.DS_Store
+Thumbs.db

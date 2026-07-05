@@ -1,0 +1,33 @@
+[project]
+name = "hyperframes-voice-management"
+version = "0.0.1"
+description = "VO Studio — web tool quản lý voiceover (fragment/take/review) cho pipeline hyperframes"
+requires-python = ">=3.11"
+
+# Lõi chạy được smoke offline chỉ cần numpy + pydantic (nhẹ).
+dependencies = [
+    "numpy>=1.24",
+    "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+# Engine TTS + align thật (nặng, tải model). Cài qua: pip install -e ".[engine]"
+engine = [
+    "vieneu",
+    "faster-whisper",
+]
+# Web (milestone M2+).
+web = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
+
+[project.scripts]
+vo-studio = "app.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]

@@ -1,0 +1,7 @@
+{
+  "voice": "Đức Trí",
+  "engine": "vieneu",
+  "whisper_model": "small",
+  "default_gap_s": 0.40,
+  "recent_projects": []
+}
