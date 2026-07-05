@@ -8,7 +8,9 @@ Thiết kế đầy đủ: [DESIGN.md](DESIGN.md).
 
 ## Trạng thái
 
-**M0 — xương sống engine + CLI** (đang làm). Chưa có web UI (M3+).
+- **M0** — xương sống engine + CLI. ✓
+- **M2** — FastAPI + job queue async + SSE (generate/align async). ✓
+- **M3+** — web UI. (chưa)
 
 ## Cài đặt
 
@@ -29,6 +31,21 @@ python -m app.cli smoke
 # Smoke đầy đủ (cần .[engine]): dùng vieneu + faster-whisper thật.
 python -m app.cli smoke --full
 ```
+
+## Chạy web backend (M2)
+
+```bash
+pip install -e ".[web]"
+# engine thật (mặc định): cần .[engine]. Test không cần model: đặt VO_STUDIO_ENGINE=fake
+uvicorn app.main:app --reload           # http://127.0.0.1:8000  (/docs cho OpenAPI)
+
+# Kiểm chứng API end-to-end (server chạy với VO_STUDIO_ENGINE=fake):
+python scripts/api_smoke.py
+```
+
+Luồng async: `POST /api/takes/generate` trả `job_id` ngay; worker sinh take trong
+thread, đẩy tiến độ qua SSE `GET /api/jobs/stream`; poll `GET /api/jobs/{id}` để biết
+`done`. Xem toàn bộ endpoint ở `/docs`.
 
 ## CLI (M0)
 

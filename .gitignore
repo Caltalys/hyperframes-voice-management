@@ -9,6 +9,8 @@ __pycache__/
 # but ignore any local scratch
 /scratch/
 /.smoke/
+/.apitest/
+/.apitest-server.*
 
 # OS
 .DS_Store

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VO Studio</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; }
+    code { background: #f4f4f5; padding: 2px 6px; border-radius: 4px; }
+    .muted { color: #71717a; }
+  </style>
+</head>
+<body>
+  <h1>VO Studio <span class="muted">— backend M2</span></h1>
+  <p>API đang chạy. Giao diện đầy đủ đến ở milestone M3.</p>
+  <p class="muted">Kiểm tra nhanh:</p>
+  <ul>
+    <li><a href="/api/health">/api/health</a></li>
+    <li><a href="/docs">/docs</a> — OpenAPI (Swagger)</li>
+    <li><code>GET /api/jobs/stream</code> — SSE tiến độ generate</li>
+  </ul>
+  <p id="health" class="muted">…</p>
+  <script>
+    fetch("/api/health").then(r => r.json())
+      .then(d => document.getElementById("health").textContent = "health: " + JSON.stringify(d));
+  </script>
+</body>
+</html>
