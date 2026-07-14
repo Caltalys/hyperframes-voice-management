@@ -12,7 +12,9 @@ Thiết kế đầy đủ: [DESIGN.md](DESIGN.md).
 - **M2** — FastAPI + job queue async + SSE (generate/align async). ✓
 - **M3** — web UI: rail line, fragment, sửa text/gap, generate (SSE), so 2 take + waveform, chọn take, merge line, export. ✓
 - **M4** — split/merge fragment (vứt take, xóa line.merged). ✓
-- **M5** — re-import diff/orphan, cancel job. (chưa)
+- **M4.5** — review ergonomics: nghe cả line (gap client-side), đánh dấu fragment khi nghe
+  → gen lại một lượt, phím tắt, trạng thái generate per-fragment. Xem [UIUX.md](UIUX.md). ✓
+- **M5** — re-import diff/orphan, cancel job, A/B toggle take, confirm split/gộp, gen stale. (chưa)
 
 ## Cài đặt
 

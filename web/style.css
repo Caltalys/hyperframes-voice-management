@@ -33,6 +33,7 @@ input, textarea {
 .project-open input { width: 340px; }
 .spacer { flex: 1; }
 .voice { font-size: 13px; }
+.kbd-hint { font-size: 12px; cursor: help; border-bottom: 1px dotted var(--muted); }
 .exports { display: flex; gap: 6px; }
 
 /* job bar */
@@ -69,6 +70,9 @@ input, textarea {
 .badge.ok { background: #dcfce7; color: var(--ok); border-color: #bbf7d0; }
 .badge.ready { background: #fef9c3; color: var(--warn); border-color: #fde68a; }
 .badge.warn { background: #ffedd5; color: var(--warn); border-color: #fed7aa; }
+.badge.mark { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+.badge.gen { background: var(--accent-soft); color: var(--accent); border-color: #bfdbfe; animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .45; } }
 
 /* main: line header */
 .line-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
@@ -81,6 +85,10 @@ input, textarea {
   margin-bottom: 12px; background: var(--panel);
 }
 .fragment.stale { border-color: var(--warn); }
+.fragment.focused { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.fragment.marked { box-shadow: inset 4px 0 0 var(--warn); }
+.fragment.playing { background: #f0f7ff; border-color: var(--accent); }
+.fragment.generating { border-style: dashed; }
 .frag-top { display: flex; gap: 10px; align-items: flex-start; }
 .frag-text { flex: 1; resize: vertical; min-height: 46px; }
 .frag-meta { display: flex; flex-direction: column; gap: 6px; width: 150px; }
