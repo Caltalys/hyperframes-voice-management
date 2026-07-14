@@ -58,7 +58,7 @@ Nền đã có đủ (`content_hash` + badge stale). Thiếu một nút gom qué
 
 ## Kế hoạch
 
-| Đợt | Tính năng | Phạm vi |
-|---|---|---|
-| **M4.5 — review ergonomics** | 1, 2, 3, 7 | thuần frontend (`web/`), không đụng backend |
-| **M5** (cùng re-import/cancel job) | 4, 5, 6 | frontend + 1 endpoint gom stale nếu cần |
+| Đợt | Tính năng | Phạm vi | Trạng thái |
+|---|---|---|---|
+| **M4.5 — review ergonomics** | 1, 2, 3, 7 | thuần frontend (`web/`), không đụng backend | ✓ |
+| **M5** (cùng re-import/cancel job) | 4, 5, 6 | frontend (gen stale gom `fragment_ids` phía client) | ✓ |

@@ -77,6 +77,92 @@ def import_script(ep: Path) -> Project:
     return project
 
 
+def _next_seq(line: Line) -> int:
+    """Seq kế tiếp chưa dùng trong line (tính cả orphan — id không tái đánh số)."""
+    maxn = -1
+    for f in line.fragments:
+        tail = f.id.rsplit("-", 1)[-1]
+        if tail.isdigit():
+            maxn = max(maxn, int(tail))
+    return maxn + 1
+
+
+def reimport_project(existing: Project, incoming: Project, apply: bool) -> dict:
+    """So khớp incoming (parse mới từ SCRIPT.md) với existing, map theo frame.
+
+    Trong line: fragment text khớp -> giữ nguyên (take còn liên kết); text mới ->
+    fragment trống; fragment cũ không còn -> orphan (không xóa, khôi phục được).
+    Line biến mất khỏi script -> mọi fragment thành orphan, line giữ lại.
+    Trả diff (preview); apply=True mới sửa existing tại chỗ (caller lo save).
+    """
+    diff: dict = {"changed": False, "lines_added": [], "lines_removed": [],
+                  "lines_changed": []}
+    new_lines: list[Line] = []
+
+    for inc in incoming.lines:
+        old = existing.line(inc.frame)
+        if old is None:
+            diff["lines_added"].append(inc.frame)
+            new_lines.append(inc)
+            continue
+
+        # khớp text từng fragment mới với fragment cũ chưa dùng (ưu tiên active,
+        # orphan khớp lại được khôi phục — take cũ vẫn còn)
+        pool = sorted(old.fragments, key=lambda f: f.orphan)
+        was_orphan = {f.id: f.orphan for f in pool}
+        used: set[str] = set()
+        matched: list[Fragment] = []
+        added: list[str] = []
+        seq = _next_seq(old)
+        for nf in inc.fragments:
+            hit = next((f for f in pool
+                        if f.id not in used and f.text == nf.text), None)
+            if hit is not None:
+                used.add(hit.id)
+                hit.orphan = False
+                matched.append(hit)
+            else:
+                matched.append(Fragment(id=f"f-{old.frame}-{seq}", text=nf.text))
+                seq += 1
+                added.append(nf.text)
+        orphaned = [f for f in pool if f.id not in used and not was_orphan[f.id]]
+        for f in orphaned:
+            f.orphan = True
+        old_orphans = [f for f in pool if f.id not in used and was_orphan[f.id]]
+
+        restored = [f for f in matched if was_orphan.get(f.id)]
+        meta_changed = (old.title, old.time_range, old.delivery) != (
+            inc.title, inc.time_range, inc.delivery)
+        old.title, old.time_range, old.delivery = inc.title, inc.time_range, inc.delivery
+        old.fragments = matched + orphaned + old_orphans
+        if added or orphaned or restored:
+            old.merged = None  # tập fragment active đã đổi -> line wav cũ không còn hợp lệ
+        if added or orphaned or restored or meta_changed:
+            diff["lines_changed"].append({
+                "frame": old.frame, "kept": len(used),
+                "added": added, "orphaned": [f.text for f in orphaned],
+                "restored": len(restored), "meta_changed": meta_changed,
+            })
+        new_lines.append(old)
+
+    # line không còn trong script -> giữ lại nhưng orphan toàn bộ fragment
+    inc_frames = {l.frame for l in incoming.lines}
+    for old in existing.lines:
+        if old.frame not in inc_frames:
+            diff["lines_removed"].append(old.frame)
+            for f in old.fragments:
+                f.orphan = True
+            old.merged = None
+            new_lines.append(old)
+
+    diff["changed"] = bool(diff["lines_added"] or diff["lines_removed"]
+                           or diff["lines_changed"])
+    if apply and diff["changed"]:
+        existing.voice_direction = incoming.voice_direction
+        existing.lines = new_lines
+    return diff
+
+
 def export_script(project: Project) -> str:
     """Dựng lại SCRIPT.md từ project.json (nội dung khớp để git diff sạch)."""
     out: list[str] = [f"# SCRIPT — {project.title}", ""]

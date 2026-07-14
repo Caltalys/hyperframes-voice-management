@@ -5,6 +5,7 @@ const state = {
   focusId: null,           // fragment đang focus (điều hướng phím)
   marked: new Set(),       // fragment đánh dấu khi nghe (client-side, mất khi reload)
   generating: new Set(),   // fragment đang generate (theo SSE)
+  jobId: null,             // job đang chạy/mới nhất (để cancel)
 };
 let audioEl = null;
 
@@ -63,6 +64,12 @@ const takeUrl = (take) =>
   "&take_wav=" + encodeURIComponent(take.wav);
 const fragCard = (fid) =>
   document.querySelector(`.fragment[data-fid="${CSS.escape(fid)}"]`);
+const staleIds = () => {
+  const ids = [];
+  for (const line of state.project?.lines || [])
+    for (const f of line.fragments) if (!f.orphan && f.stale) ids.push(f.id);
+  return ids;
+};
 
 // ---------- load / render ----------
 async function loadState(ep) {
@@ -72,6 +79,7 @@ async function loadState(ep) {
   document.getElementById("ep-input").value = data.ep;
   document.getElementById("btn-export-meta").disabled = false;
   document.getElementById("btn-export-script").disabled = false;
+  document.getElementById("btn-reimport").disabled = false;
   if (state.selectedFrame == null && state.project.lines.length)
     state.selectedFrame = state.project.lines[0].frame;
   render();
@@ -157,6 +165,19 @@ function renderMain() {
       text: `đã merge → ${line.merged.wav} (${line.merged.duration_s}s, ${line.merged.words.length} từ)` }));
 
   active.forEach((frag, i) => main.append(renderFragment(frag, i === active.length - 1)));
+
+  // orphan (ẩn sau re-import) — hiện mờ cuối line, khôi phục được
+  const orphans = line.fragments.filter((f) => f.orphan);
+  if (orphans.length) {
+    main.append(el("div", { class: "orphan-head muted",
+      text: `${orphans.length} fragment orphan (không còn trong SCRIPT.md — take giữ nguyên):` }));
+    for (const f of orphans)
+      main.append(el("div", { class: "orphan-row" }, [
+        el("span", { class: "muted", text: f.text }),
+        el("button", { class: "ghost", text: "↩ Khôi phục",
+          onclick: () => restoreFragment(f.id) }),
+      ]));
+  }
   main.scrollTop = scroll;
 }
 
@@ -193,6 +214,9 @@ function renderFragment(frag, isLast) {
       el("span", { class: "badge gen hidden", text: "⏳ đang tạo…" }),
       el("button", { class: "btn-gen", text: "↻ Generate",
         onclick: () => generate({ fragment_ids: [frag.id] }) }),
+      frag.takes.length === 2 ? el("button", { class: "ghost", text: "▶ A/B",
+        title: "phát take 1 rồi take 2 liền nhau để so — phím A",
+        onclick: () => playAB(frag.id) }) : null,
       el("button", { class: "ghost", text: "✂ Split", title: "tách tại vị trí con trỏ trong ô text",
         onclick: () => splitFragment(frag.id, textArea.selectionStart) }),
       isLast ? null : el("button", { class: "ghost", text: "⌄ Gộp dưới",
@@ -254,6 +278,10 @@ function applyDynamicState() {
     genMarkedBtn.classList.toggle("hidden", !state.marked.size);
     genMarkedBtn.textContent = `↻ Gen đánh dấu (${state.marked.size})`;
   }
+  const stale = staleIds();
+  const genStaleBtn = document.getElementById("btn-gen-stale");
+  genStaleBtn.classList.toggle("hidden", !stale.length);
+  genStaleBtn.textContent = `↻ Gen stale (${stale.length})`;
 }
 
 // ---------- nghe cả line (playlist + gap client-side) ----------
@@ -355,6 +383,22 @@ function playTake(wavUrl, wordEls) {
   playUrl(wavUrl, wordEls);
 }
 
+// A/B: phát take 1 rồi take 2 liền nhau (so sánh tức thì, không bấm ▶ từng cái)
+function playAB(fid) {
+  const frag = findFragment(fid);
+  if (!frag || frag.takes.length < 2) return;
+  stopLinePlayback();
+  const card = fragCard(fid);
+  const takeEls = card ? [...card.querySelectorAll(".take")] : [];
+  const playOne = (i) => {
+    if (i >= 2) { takeEls.forEach((t) => t.classList.remove("ab-playing")); return; }
+    takeEls.forEach((t, k) => t.classList.toggle("ab-playing", k === i));
+    const wordEls = takeEls[i] ? [...takeEls[i].querySelectorAll(".word")] : [];
+    playUrl(takeUrl(frag.takes[i]), wordEls, () => setTimeout(() => playOne(i + 1), 250));
+  };
+  playOne(0);
+}
+
 // ---------- phím tắt ----------
 function moveFocus(delta) {
   const line = currentLine();
@@ -404,6 +448,9 @@ function onKeydown(ev) {
       break;
     case "1": selectTakeByIndex(state.focusId, 0); break;
     case "2": selectTakeByIndex(state.focusId, 1); break;
+    case "a": case "A":
+      if (state.focusId) playAB(state.focusId);
+      break;
     case "m": case "M":
       toggleMark(playback.active ? playback.playingId : state.focusId);
       break;
@@ -426,6 +473,10 @@ async function editGap(fid, val) {
   } catch (e) { toast("Sửa gap lỗi: " + e.message, true); }
 }
 async function splitFragment(fid, charIndex) {
+  const frag = findFragment(fid);
+  if (frag?.takes.length &&
+      !confirm(`Tách fragment sẽ XÓA ${frag.takes.length} take đã generate (ranh giới audio đổi).\nTiếp tục?`))
+    return;
   try {
     const r = await postJSON("/api/fragments/split",
       { ep: state.ep, fragment_id: fid, char_index: charIndex });
@@ -434,11 +485,52 @@ async function splitFragment(fid, charIndex) {
   } catch (e) { toast("Split lỗi: " + e.message, true); }
 }
 async function mergeNext(fid) {
+  const line = currentLine();
+  const frags = line ? activeFrags(line) : [];
+  const i = frags.findIndex((f) => f.id === fid);
+  const nTakes = (frags[i]?.takes.length || 0) + (frags[i + 1]?.takes.length || 0);
+  if (nTakes &&
+      !confirm(`Gộp 2 fragment sẽ XÓA ${nTakes} take đã generate (ranh giới audio đổi).\nTiếp tục?`))
+    return;
   try {
     await postJSON("/api/fragments/merge-next", { ep: state.ep, fragment_id: fid });
     toast("Đã gộp với fragment dưới (take cũ bị xóa)");
     await loadState(state.ep);
   } catch (e) { toast("Gộp lỗi: " + e.message, true); }
+}
+async function restoreFragment(fid) {
+  try {
+    await postJSON("/api/fragments/restore", { ep: state.ep, fragment_id: fid });
+    toast("Đã khôi phục fragment (take còn nguyên)");
+    await loadState(state.ep);
+  } catch (e) { toast("Khôi phục lỗi: " + e.message, true); }
+}
+async function reimport() {
+  try {
+    const r = await postJSON("/api/projects/reimport", { ep: state.ep, confirm: false });
+    const d = r.diff;
+    if (!d.changed) { toast("SCRIPT.md không có gì thay đổi."); return; }
+    const parts = [];
+    if (d.lines_added.length) parts.push(`+ line mới: ${d.lines_added.join(", ")}`);
+    if (d.lines_removed.length) parts.push(`− line biến mất (fragment thành orphan): ${d.lines_removed.join(", ")}`);
+    for (const lc of d.lines_changed)
+      parts.push(`~ line ${lc.frame}: giữ ${lc.kept}` +
+        (lc.added.length ? `, thêm ${lc.added.length} fragment trống` : "") +
+        (lc.orphaned.length ? `, ${lc.orphaned.length} thành orphan` : "") +
+        (lc.restored ? `, khôi phục ${lc.restored}` : "") +
+        (lc.meta_changed ? ", meta đổi" : ""));
+    if (!confirm("Re-import SCRIPT.md — thay đổi:\n\n" + parts.join("\n") +
+                 "\n\nFragment khớp text giữ nguyên take. Áp dụng?")) return;
+    await postJSON("/api/projects/reimport", { ep: state.ep, confirm: true });
+    toast("Re-import xong.");
+    state.focusId = null;
+    await loadState(state.ep);
+  } catch (e) { toast("Re-import lỗi: " + e.message, true); }
+}
+async function cancelJob() {
+  if (!state.jobId) return;
+  try { await postJSON(`/api/jobs/${state.jobId}/cancel`); }
+  catch (e) { toast("Hủy job lỗi: " + e.message, true); }
 }
 async function selectTake(fid, tid) {
   try {
@@ -450,6 +542,7 @@ async function generate(target) {
   try {
     const body = Object.assign({ ep: state.ep }, target);
     const r = await postJSON("/api/takes/generate", body);
+    state.jobId = r.job_id;
     showJob(0, r.total, "đang tạo giọng…");
   } catch (e) { toast("Generate lỗi: " + e.message, true); }
 }
@@ -474,6 +567,7 @@ function connectSSE() {
   const es = new EventSource("/api/jobs/stream");
   es.onmessage = async (ev) => {
     const e = JSON.parse(ev.data);
+    if (e.job_id || e.id) state.jobId = e.job_id || e.id;
     if (e.type === "fragment_start") {
       state.generating.add(e.fragment_id);
       showJob(e.index - 1, e.total, "đang tạo giọng…");
@@ -487,6 +581,11 @@ function connectSSE() {
       showJob(e.total, e.total, "xong");
       setTimeout(hideJob, 900);
       if (state.ep) await loadState(state.ep);
+    } else if (e.type === "canceled") {
+      state.generating.clear();
+      toast(`Đã hủy job (${e.index}/${e.total})`);
+      hideJob();
+      if (state.ep) await loadState(state.ep);   // take đã xong trước khi hủy vẫn còn
     } else if (e.type === "error") {
       state.generating.clear();
       toast("Job lỗi: " + (e.error || ""), true);
@@ -537,6 +636,13 @@ async function init() {
   document.getElementById("btn-export-script").addEventListener("click", async () => {
     try { await postJSON("/api/export/script", { ep: state.ep }); toast("Đã ghi SCRIPT.md"); }
     catch (e) { toast("Export lỗi: " + e.message, true); }
+  });
+
+  document.getElementById("btn-reimport").addEventListener("click", reimport);
+  document.getElementById("btn-job-cancel").addEventListener("click", cancelJob);
+  document.getElementById("btn-gen-stale").addEventListener("click", () => {
+    const ids = staleIds();
+    if (ids.length) generate({ fragment_ids: ids });
   });
 
   document.addEventListener("keydown", onKeydown);

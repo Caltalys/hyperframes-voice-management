@@ -55,6 +55,12 @@ class FakeTTS(TTSEngine):
 
     def generate(self, tts_text: str, voice: str, gap_s: float,
                  out_wav: Path, tmp_dir: Path) -> float:
+        import os
+        import time
+        # giả lập TTS chậm (test cancel job giữa batch) — mặc định 0, không delay
+        delay = float(os.environ.get("VO_STUDIO_FAKE_DELAY_S", "0"))
+        if delay > 0:
+            time.sleep(delay)
         chunks = tts_chunks(tts_text) or [tts_text]
         tmp_dir.mkdir(parents=True, exist_ok=True)
         paths: list[Path] = []

@@ -106,6 +106,29 @@ async def merge_fragment_next(body: MergeFragBody) -> dict:
     return {"frame": line.frame, "fragment_id": frag.id, "text": frag.text}
 
 
+class RestoreBody(BaseModel):
+    ep: str
+    fragment_id: str
+
+
+@router.post("/fragments/restore")
+async def restore_fragment(body: RestoreBody) -> dict:
+    """Khôi phục fragment orphan (bị ẩn sau re-import) về active — take còn nguyên."""
+    ep = resolve_ep(body.ep)
+    async with ep_lock(ep):
+        project = store.load(ep)
+        frag = project.fragment(body.fragment_id)
+        if frag is None:
+            raise HTTPException(404, f"fragment không tồn tại: {body.fragment_id}")
+        if not frag.orphan:
+            raise HTTPException(400, f"fragment không phải orphan: {body.fragment_id}")
+        frag.orphan = False
+        line = _line_of(project, body.fragment_id)
+        line.merged = None  # tập fragment active đổi -> line wav cũ không còn hợp lệ
+        store.save(ep, project)
+    return {"fragment_id": frag.id, "orphan": False, "frame": line.frame}
+
+
 class LineMeta(BaseModel):
     ep: str
     frame: int

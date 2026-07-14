@@ -14,7 +14,8 @@ Thiết kế đầy đủ: [DESIGN.md](DESIGN.md).
 - **M4** — split/merge fragment (vứt take, xóa line.merged). ✓
 - **M4.5** — review ergonomics: nghe cả line (gap client-side), đánh dấu fragment khi nghe
   → gen lại một lượt, phím tắt, trạng thái generate per-fragment. Xem [UIUX.md](UIUX.md). ✓
-- **M5** — re-import diff/orphan, cancel job, A/B toggle take, confirm split/gộp, gen stale. (chưa)
+- **M5** — re-import diff preview + orphan/khôi phục, cancel job, A/B toggle take,
+  confirm split/gộp, gen stale toàn project. ✓
 
 ## Cài đặt
 

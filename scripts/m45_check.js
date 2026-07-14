@@ -15,8 +15,10 @@ function check(cond, label) {
   });
   const page = await browser.newPage();
   const errors = [];
+  let lastDialog = null;
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+  page.on('dialog', (d) => { lastDialog = d.message(); d.dismiss(); });
 
   await page.goto('http://127.0.0.1:8000/');
   await page.fill('#ep-input', EP);
@@ -59,6 +61,28 @@ function check(cond, label) {
     return takes[1]?.classList.contains('selected');
   }, fid1, { timeout: 5000 });
   check(true, 'phím 2 chọn take thứ hai');
+
+  // M5 — A/B toggle: nút hiện khi đủ 2 take, phím A phát và highlight take
+  check(await page.$(`.fragment[data-fid="${fid1}"] button:has-text("A/B")`), 'nút A/B hiện khi có 2 take');
+  await page.keyboard.press('a');
+  await page.waitForSelector('.take.ab-playing', { timeout: 5000 });
+  check(true, 'phím A phát A/B — take được highlight');
+  await page.waitForFunction(() => !document.querySelector('.take.ab-playing'), null, { timeout: 15000 });
+  check(true, 'A/B phát xong tự tắt highlight');
+
+  // M5 — confirm phá hủy: Gộp dưới khi có take -> dialog, dismiss -> không đổi
+  lastDialog = null;
+  await page.click(`.fragment[data-fid="${fid1}"] button:has-text("Gộp dưới")`);
+  check(lastDialog && lastDialog.includes('XÓA'), 'gộp fragment có take -> hỏi confirm');
+  check((await page.$$('.fragment')).length === 2, 'dismiss confirm -> không gộp');
+
+  // M5 — gen stale: sửa text -> nút topbar "Gen stale (n)" hiện
+  await page.fill(`.fragment[data-fid="${fid1}"] .frag-text`, 'Text hoàn toàn mới.');
+  await page.click('h2'); // blur -> save
+  await page.waitForFunction(() =>
+    !document.getElementById('btn-gen-stale').classList.contains('hidden'), null, { timeout: 5000 });
+  check(await page.$eval('#btn-gen-stale', (e) => e.textContent.includes('(1)')), 'nút Gen stale (1) hiện sau sửa text');
+  check(await page.$eval('#btn-reimport', (e) => !e.disabled), 'nút Re-import bật khi có project');
 
   // nghe cả line: playing class + nút đổi nhãn, Space pause
   await page.click('#btn-play-line');
