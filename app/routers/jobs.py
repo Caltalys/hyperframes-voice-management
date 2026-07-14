@@ -45,3 +45,13 @@ def job_status(job_id: str) -> dict:
     if not job:
         raise HTTPException(404, f"job không tồn tại: {job_id}")
     return job.public()
+
+
+@router.post("/jobs/{job_id}/cancel")
+def job_cancel(job_id: str) -> dict:
+    """Hủy job: queued hủy ngay, running hủy ở ranh giới fragment kế tiếp
+    (fragment đang TTS chạy nốt, take của nó vẫn được lưu)."""
+    job = manager.cancel(job_id)
+    if job is None:
+        raise HTTPException(404, f"job không tồn tại: {job_id}")
+    return job.public()

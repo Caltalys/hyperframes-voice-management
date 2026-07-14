@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VO Studio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎙️</text></svg>" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -14,8 +15,11 @@
       <datalist id="recent-list"></datalist>
       <button id="btn-open">Mở</button>
       <button id="btn-import" class="ghost">Import SCRIPT.md</button>
+      <button id="btn-reimport" class="ghost" disabled title="đọc lại SCRIPT.md đã sửa bên ngoài — có diff preview">Re-import</button>
     </div>
     <div class="spacer"></div>
+    <button id="btn-gen-stale" class="ghost hidden" title="generate lại mọi fragment có take lệch text hiện tại"></button>
+    <div class="kbd-hint muted" title="Space: nghe/dừng line · ↑↓: chuyển fragment · ←→: chuyển line · Enter: generate · 1/2: chọn take · A: so A/B 2 take · M: đánh dấu cần gen lại">⌨ phím tắt</div>
     <div id="voice-label" class="voice muted">voice: …</div>
     <div class="exports">
       <button id="btn-export-meta" class="ghost" disabled>Export audio_meta</button>
@@ -26,6 +30,7 @@
   <div id="job-bar" class="job-bar hidden">
     <div class="job-fill" id="job-fill"></div>
     <span id="job-text" class="job-text"></span>
+    <button id="btn-job-cancel" class="job-cancel" title="hủy job (fragment đang chạy sẽ xong nốt)">✕</button>
   </div>
 
   <main class="layout">

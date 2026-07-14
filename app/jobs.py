@@ -60,11 +60,12 @@ class Job:
     id: str
     ep: str
     fragment_ids: list[str]
-    status: str = "queued"           # queued | running | done | error
+    status: str = "queued"           # queued | running | done | error | canceled
     index: int = 0                   # fragment đang xử lý (1-based)
     total: int = 0
     error: str | None = None
     results: list[dict] = field(default_factory=list)  # {fragment_id, take_id}
+    cancel_requested: bool = False   # worker kiểm giữa các fragment (không cắt giữa TTS)
 
     def public(self) -> dict[str, Any]:
         return {
@@ -99,6 +100,21 @@ class JobManager:
         self._emit({"type": "queued", **job.public()})
         return job
 
+    # --- cancel ---
+    def cancel(self, job_id: str) -> Job | None:
+        """Yêu cầu hủy job. queued -> hủy ngay; running -> hủy ở ranh giới fragment
+        kế tiếp (fragment đang TTS chạy nốt). Job đã kết thúc -> trả nguyên trạng."""
+        job = self.jobs.get(job_id)
+        if job is None:
+            return None
+        if job.status in ("done", "error", "canceled"):
+            return job
+        job.cancel_requested = True
+        if job.status == "queued":
+            job.status = "canceled"
+            self._emit({"type": "canceled", **job.public()})
+        return job
+
     # --- SSE pub/sub ---
     def subscribe(self) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue()
@@ -118,7 +134,8 @@ class JobManager:
             job_id = await self.queue.get()
             job = self.jobs[job_id]
             try:
-                await self._run_job(job)
+                if job.status != "canceled":  # hủy khi còn queued -> bỏ qua
+                    await self._run_job(job)
             except Exception as exc:  # noqa: BLE001 — báo lỗi job, không sập worker
                 job.status = "error"
                 job.error = str(exc)
@@ -134,6 +151,10 @@ class JobManager:
         self._emit({"type": "start", **job.public()})
 
         for i, fid in enumerate(job.fragment_ids, 1):
+            if job.cancel_requested:
+                job.status = "canceled"
+                self._emit({"type": "canceled", **job.public()})
+                return
             job.index = i
             self._emit({"type": "fragment_start", "job_id": job.id,
                         "fragment_id": fid, "index": i, "total": job.total})

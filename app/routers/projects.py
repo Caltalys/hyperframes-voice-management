@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import config, script_io, store
+from ..jobs import ep_lock
 
 router = APIRouter(prefix="/api", tags=["projects"])
 
@@ -46,6 +47,33 @@ def import_project(body: EpBody) -> dict:
     config.remember_project(str(ep))
     return {"ep": str(ep), "lines": len(project.lines),
             "fragments": sum(len(l.fragments) for l in project.lines)}
+
+
+class ReimportBody(BaseModel):
+    ep: str
+    confirm: bool = False   # false: chỉ trả diff preview, không sửa gì
+
+
+@router.post("/projects/reimport")
+async def reimport(body: ReimportBody) -> dict:
+    """Re-import SCRIPT.md khi đã có project (sửa script bên ngoài tool).
+
+    confirm=false trả diff preview; confirm=true áp dụng: fragment text khớp giữ
+    nguyên take, text mới thành fragment trống, fragment biến mất thành orphan
+    (không xóa — khôi phục qua /api/fragments/restore)."""
+    ep = resolve_ep(body.ep)
+    if not store.exists(ep):
+        raise HTTPException(404, "chưa có project.json — dùng import thường")
+    if not (ep / "SCRIPT.md").exists():
+        raise HTTPException(400, f"không thấy SCRIPT.md trong {ep}")
+    async with ep_lock(ep):
+        project = store.load(ep)
+        incoming = script_io.import_script(ep)
+        diff = script_io.reimport_project(project, incoming, apply=body.confirm)
+        applied = body.confirm and diff["changed"]
+        if applied:
+            store.save(ep, project)
+    return {"ep": str(ep), "applied": applied, "diff": diff}
 
 
 @router.post("/projects/open")
