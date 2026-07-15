@@ -4,8 +4,8 @@ In-process, 1 worker serialize (không load model 2 lần song song). Generate c
 trong thread (asyncio.to_thread) để không chẹn event loop -> SSE vẫn realtime.
 Ghi project.json dưới lock per-ep để worker và API không tranh chấp.
 
-Engine chọn qua env VO_STUDIO_ENGINE=fake|real (mặc định real). fake dùng để
-test đường ống async không cần tải model.
+Engine mặc định lấy từ config["engine"] (registry ở engine/tts.py); env
+VO_STUDIO_ENGINE override (fake dùng test async không cần tải model).
 """
 
 from __future__ import annotations
@@ -40,16 +40,19 @@ def get_engines() -> tuple:
     """(tts, aligner) singleton — lazy, giữ model nạp 1 lần trong tiến trình."""
     global _engines
     if _engines is None:
-        mode = os.environ.get("VO_STUDIO_ENGINE", "real").lower()
-        if mode == "fake":
-            from .engine.tts import FakeTTS
+        from .engine.tts import make_tts
+        cfg = config.load_config()
+        # env override > config["engine"]; "real" = alias cho backend thật.
+        name = (os.environ.get("VO_STUDIO_ENGINE") or cfg["engine"]).lower()
+        if name == "real":
+            name = cfg["engine"]
+        tts = make_tts(name)
+        if name == "fake":
             from .engine.align import FakeAligner
-            _engines = (FakeTTS(), FakeAligner())
+            _engines = (tts, FakeAligner())
         else:
-            from .engine.tts import RealTTS
             from .engine.align import RealAligner
-            cfg = config.load_config()
-            _engines = (RealTTS(), RealAligner(cfg["whisper_model"]))
+            _engines = (tts, RealAligner(cfg["whisper_model"]))
     return _engines
 
 

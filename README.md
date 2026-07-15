@@ -26,6 +26,15 @@ pip install -e .                 # lõi (numpy + pydantic) — đủ chạy smok
 pip install -e ".[engine]"       # thêm TTS + align thật (vieneu, faster-whisper) — nặng
 ```
 
+## Cấu hình (voice / engine)
+
+Config toàn cục ở `~/.hyperframes-vo/config.json` (mẫu: [config.default.json](config.default.json)); `voice` là hằng số dùng cho MỌI tập.
+
+- `voice` **phải là preset của engine đang chọn**. Với vieneu, liệt kê preset hợp lệ: `python -c "from vieneu import Vieneu; print(Vieneu().list_preset_voices())"` (vd. `Minh Đức`, `Phạm Tuyên`, `Trúc Ly`...). Voice không tồn tại -> generate báo `ValueError: Voice '...' not found`.
+- `engine` chọn backend TTS đã đăng ký (mặc định `vieneu`). Env `VO_STUDIO_ENGINE` override (`fake` = sine wav offline, không tải model).
+
+**Đổi thư viện TTS**: backend đăng ký qua registry ở `app/engine/tts.py`. Thêm thư viện mới = viết 1 lớp `TTSEngine.generate(...)` + `@register_tts("tên")`, rồi đặt `"engine": "tên"` trong config — không sửa `pipeline`/`jobs`/`cli`.
+
 ## Kiểm chứng M0
 
 ```bash

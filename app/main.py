@@ -3,7 +3,7 @@
     pip install -e ".[web]"
     uvicorn app.main:app --reload        # http://127.0.0.1:8000
 
-Engine chọn qua env VO_STUDIO_ENGINE=fake|real (mặc định real).
+Engine mặc định lấy từ config["engine"]; env VO_STUDIO_ENGINE override (fake).
 """
 
 from __future__ import annotations
