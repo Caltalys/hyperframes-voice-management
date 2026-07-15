@@ -13,7 +13,7 @@ CONFIG_DIR = Path.home() / ".hyperframes-vo"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 
 DEFAULTS: dict[str, Any] = {
-    "voice": "Đức Trí",
+    "voice": "Minh Đức",  # phải là preset của engine (vieneu: Vieneu().list_preset_voices())
     "engine": "vieneu",
     "whisper_model": "small",
     "default_gap_s": 0.40,

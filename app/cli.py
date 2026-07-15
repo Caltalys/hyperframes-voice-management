@@ -20,14 +20,13 @@ from . import config, pipeline, script_io, store
 
 def _resolve_engines(full: bool):
     """(tts, aligner) — Fake cho offline, Real (vieneu/whisper) cho --full/gen."""
+    from .engine.tts import make_tts
     if full:
-        from .engine.tts import RealTTS
         from .engine.align import RealAligner
         cfg = config.load_config()
-        return RealTTS(), RealAligner(cfg["whisper_model"])
-    from .engine.tts import FakeTTS
+        return make_tts(cfg["engine"]), RealAligner(cfg["whisper_model"])
     from .engine.align import FakeAligner
-    return FakeTTS(), FakeAligner()
+    return make_tts("fake"), FakeAligner()
 
 
 # ---------- commands ----------
