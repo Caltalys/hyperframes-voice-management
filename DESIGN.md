@@ -45,8 +45,8 @@ hyperframes-voice-management/
 │  ├─ store.py               # load/save project.json (atomic write), lock
 │  ├─ script_io.py           # import parser + export SCRIPT.md
 │  ├─ engine/
-│  │  ├─ tts.py              # bọc vieneu (lazy-load model), infer 1 fragment
-│  │  ├─ align.py            # bọc faster-whisper, force_align 1 wav ngắn
+│  │  ├─ tts.py              # registry backend TTS (make_tts); VieneuTTS lazy-load model
+│  │  ├─ align.py            # bọc faster-whisper, force_align 1 wav ngắn (chưa registry — xem note trong file)
 │  │  └─ audio.py            # concat wav + trim lặng + tính offset (từ vo.py)
 │  ├─ jobs.py                # in-process job queue + trạng thái + SSE stream
 │  └─ routers/
@@ -72,14 +72,14 @@ text whisper). Chỉ đổi đơn vị từ line → fragment.
 ### 3.1 Global config — `~/.hyperframes-vo/config.json`
 ```jsonc
 {
-  "voice": "Đức Trí",
-  "engine": "vieneu",
+  "voice": "Minh Đức",       // phải là preset của engine (vieneu: Vieneu().list_preset_voices())
+  "engine": "vieneu",        // key backend đăng ký trong tts.py registry (make_tts)
   "whisper_model": "small",
   "default_gap_s": 0.40,
   "recent_projects": ["C:/work/greencore-v2/videos/greencore-intro-ep01"]
 }
 ```
-Voice là hằng số toàn cục cho **mọi tập** → không vào hash, không lưu trong project.
+Voice là hằng số toàn cục cho **mọi tập** → không vào hash, không lưu trong project. Voice phải khớp preset của engine đang chọn, nếu không `infer()` báo `ValueError: Voice '...' not found`. Backend TTS chọn qua `engine` (registry trong `tts.py`); aligner chưa tách registry — xem note trong `align.py`.
 
 ### 3.2 Project — `<ep-dir>/assets/vo/project.json` (nguồn sự thật)
 ```jsonc

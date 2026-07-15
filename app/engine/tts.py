@@ -4,12 +4,16 @@ Fragment.effective_tts() -> tách câu (tts_chunks) -> infer từng câu -> conc
 (trim=True, gap giữa câu) thành wav của fragment. Đây là cùng cách vo.py sinh
 audio, chỉ đổi đơn vị line -> fragment.
 
-RealTTS lazy-load vieneu 1 lần (nặng). FakeTTS sinh sine wav để smoke offline.
+Backend TTS đăng ký qua @register_tts("<tên>") và được chọn bằng make_tts(tên)
+(tên = config["engine"]). Thêm thư viện TTS mới = viết 1 lớp TTSEngine +
+1 decorator, KHÔNG sửa pipeline/jobs/cli. VieneuTTS lazy-load vieneu 1 lần
+(nặng). FakeTTS sinh sine wav để smoke offline.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from ..models import tts_chunks
 from . import audio
@@ -23,7 +27,30 @@ class TTSEngine:
         raise NotImplementedError
 
 
-class RealTTS(TTSEngine):
+# ---------- backend registry ----------
+
+_REGISTRY: dict[str, type[TTSEngine]] = {}
+
+
+def register_tts(name: str) -> Callable[[type[TTSEngine]], type[TTSEngine]]:
+    def deco(cls: type[TTSEngine]) -> type[TTSEngine]:
+        _REGISTRY[name.lower()] = cls
+        return cls
+    return deco
+
+
+def make_tts(name: str) -> TTSEngine:
+    """Tạo backend theo tên đã đăng ký. 'real' = alias cho backend thật."""
+    cls = _REGISTRY.get(name.lower())
+    if cls is None:
+        raise ValueError(
+            f"TTS engine '{name}' chưa đăng ký. Có: {sorted(_REGISTRY)}"
+        )
+    return cls()
+
+
+@register_tts("vieneu")
+class VieneuTTS(TTSEngine):
     def __init__(self) -> None:
         self._model = None
 
@@ -50,6 +77,7 @@ class RealTTS(TTSEngine):
         return dur
 
 
+@register_tts("fake")
 class FakeTTS(TTSEngine):
     """Sine wav ~0.5s mỗi câu — smoke offline, không tải model."""
 

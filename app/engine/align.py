@@ -8,6 +8,19 @@ khớp được nội suy tuyến tính theo độ dài ký tự.
 FakeAligner: chia đều thời lượng theo số từ — smoke offline.
 
 Kết quả: list[Word] với start/end tính từ 0 (đầu wav fragment).
+
+ponytail: CHƯA làm registry swappable như tts.py — mới có 1 aligner thật
+(whisper) + 1 fake, registry giờ là đầu cơ. Khi thêm aligner thật thứ 2
+(wav2vec/MFA/aeneas), tách theo cùng pattern tts.py, 3 điểm KHÁC cần nhớ (đã
+điều tra, đừng suy luận lại):
+  1. RealAligner cần model_size lúc dựng (TTS thì không) -> registry lưu factory
+     (cfg)->Aligner, và make_aligner(name, cfg) nhận cfg. whisper_model là
+     sub-setting riêng của backend whisper; backend khác đọc key cfg khác.
+  2. Hiện VO_STUDIO_ENGINE=fake bật CẢ FakeTTS lẫn FakeAligner (smoke dựa vào
+     đó). Giữ compat: aligner_name = "fake" nếu tts fake, ngược lại cfg["aligner"].
+     Thêm key "aligner": "whisper" vào config DEFAULTS + config.default.json.
+  3. RealAligner/FakeAligner chưa kế thừa Aligner (chỉ trùng chữ ký) — chuẩn hóa
+     cho kế thừa khi refactor. Điểm chọn: jobs.get_engines + cli._resolve_engines.
 """
 
 from __future__ import annotations
