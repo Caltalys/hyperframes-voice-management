@@ -5,7 +5,7 @@ Mỗi lần chạy (idempotent):
   2. Có project.json thì reimport_project (áp sửa script, fragment không đổi giữ
      nguyên take); chưa có thì dùng project mới parse.
   3. Sinh take cho fragment active chưa có take được chọn hoặc take đã stale
-     (text/tts/gap đổi, hoặc take sinh bằng voice khác). KHÔNG ghi đè take đã
+     (text/tts/gap đổi, take sinh bằng voice khác, hoặc bảng phiên âm liên quan tới câu đó đổi). KHÔNG ghi đè take đã
      chọn mà không stale — kết quả người nghe duyệt được giữ.
   4. Merge lại line có fragment vừa sinh hoặc chưa có line wav.
   5. Phân giải cue trên words[] của từng line đã merge (lỗi: cue không có từ đi
@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from . import pipeline, script_io, store
+from . import pipeline, pronunciation, script_io, store
 
 
 @dataclass
@@ -57,6 +57,8 @@ def build(ep: Path, cfg: dict, tts, aligner,
     report = BuildReport(engine_version=tts.version(), dry_run=dry_run)
     default_gap, voice = cfg["default_gap_s"], cfg["voice"]
 
+    lexicon = pronunciation.load(ep)
+    tts.set_pronunciations(lexicon)
     incoming = script_io.import_script(ep, strict=True)
     if store.exists(ep):
         project = store.load(ep)
@@ -75,7 +77,7 @@ def build(ep: Path, cfg: dict, tts, aligner,
 
     todo = [(line, frag) for line in project.lines
             for frag in line.active_fragments()
-            if frag.needs_generation(default_gap, voice)]
+            if frag.needs_generation(default_gap, voice, lexicon)]
     if dry_run:  # không lưu, không sinh: chỉ cho biết build sẽ làm gì
         report.planned = [frag.id for _line, frag in todo]
         log(f"  dry-run: sẽ sinh {len(todo)} fragment "

@@ -17,6 +17,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import pronunciation
 from .models import MAX_TAKES, Fragment, Line, Merged, Project, Take, Word
 
 
@@ -51,6 +52,7 @@ def generate_take(project: Project, ep: Path, fragment, tts, aligner,
         id=tid, wav=wav_rel, duration_s=dur, words=words,
         content_hash=fragment.current_hash(default_gap), created_at=_now(),
         voice=cfg["voice"], engine_version=tts.version(),
+        pron=pronunciation.signature(fragment.effective_tts(), getattr(tts, "lexicon", None)),
     )
     fragment.takes.append(take)
     _prune_takes(ep, fragment)

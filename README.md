@@ -135,6 +135,14 @@ Build phân giải cue trên `words[]` của cả line (cue đứng ở biên ha
 `voices[].cues = [{id, word_index, word_id, time_s, matched}]`, `time_s` tính từ đầu line. Lỗi: trùng id,
 cue cuối line, id sai dạng. Cảnh báo: cue neo vào từ `matched=false`.
 
+**Phiên âm tên chất tiếng Anh.** Viết tên chất IUPAC bằng tiếng Anh thẳng trong `SCRIPT.md`
+(`nitrogen dioxide`, `sodium acetate`...): lời đọc, phụ đề và căn thời gian dùng chung một văn bản. Bộ
+phiên âm của vieneu (espeak en-us) đọc đúng phần lớn, nhưng sai vài từ (trọng âm, tên riêng tiếng
+Pháp như `Le Chatelier`); `app/pronunciation.py` giữ bảng sửa và ghi đè ở mức âm vị, cùng giọng, không
+cắt-ghép âm thanh. Bài có thể thêm/ghi đè bằng `pronunciations.json` cạnh `SCRIPT.md`:
+`{"chatelier": "ʃɑːtəljˈeɪ"}` (từ chữ thường -> IPA kiểu espeak). Đổi bảng thì chỉ câu chứa từ liên quan được
+sinh lại (take ghi `pron`). Cần nghe kiểm tra: bảng sửa theo cách đọc chuẩn nhưng chưa có người nghe duyệt.
+
 Trường mới trong `audio_meta.json`: `words[].matched` (`false` = timestamp nội suy, không phải
 từ nhận dạng) và `voices[].pause_after_s` (chỉ có khi script khai báo `**Pause after:**`). Mỗi take
 trong `project.json` ghi `voice` và `engine_version` lúc sinh. File cũ thiếu các trường này vẫn đọc được.

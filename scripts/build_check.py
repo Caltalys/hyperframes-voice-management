@@ -12,6 +12,8 @@ Nghiệm thu theo đặc tả v3:
   không tính cue (dời cue không sinh lại audio), export_script chèn lại cue, lỗi
   strict (trùng id, cue cuối line, id sai dạng, cú pháp {{...}} sai);
 - build --dry-run chỉ liệt kê, không ghi file;
+- bảng phiên âm: nạp/gộp, take nào lỗi thời khi bảng đổi (chỉ câu chứa từ liên quan), thay âm vị
+  thật trên G2P của vieneu (bỏ qua nếu chưa cài);
 - project.json cũ (thiếu matched/voice/engine_version/pause_after_s/cues) vẫn đọc được.
 
 Chạy: python scripts/build_check.py
@@ -28,7 +30,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from app import build, pipeline, script_io, store
+from app import build, pipeline, pronunciation, script_io, store
 from app.engine.align import FakeAligner
 from app.engine.tts import FakeTTS
 from app.script_io import ScriptError
@@ -393,6 +395,97 @@ def test_dry_run(root: Path) -> None:
           "dry-run không đổi project.json (kể cả khi script đã sửa)")
 
 
+PRON_SCRIPT = """# SCRIPT - phiên âm
+
+---
+
+## Line 1 - Tên chất
+
+    Hòa tan sodium hydroxide vào nước. Nguyên lí Le Chatelier nói rằng cân bằng chuyển dịch.
+
+## Line 2 - Không có tên chất
+
+    Khi làm lạnh bình thì màu nhạt đi.
+"""
+
+
+def test_pronunciation(root: Path) -> None:
+    print("\n[phiên âm] bảng ghi đè tên chất đọc bằng tiếng Anh")
+    lex = pronunciation.BUILTIN
+    check(pronunciation.signature("Le Chatelier nói rằng", lex) != "", "câu có 'Chatelier' có dấu vân tay")
+    check(pronunciation.signature("Khi làm lạnh bình", lex) == "", "câu không có từ trong bảng: rỗng")
+    check(pronunciation.signature("Chatelier", lex) == pronunciation.signature("chatelier,", lex),
+          "không phân biệt hoa thường và dấu câu")
+    check(pronunciation.signature("Chatelier", {"chatelier": "x"}) != pronunciation.signature("Chatelier", lex),
+          "đổi phiên âm thì dấu vân tay đổi")
+    check(pronunciation.swap_tokens("lə tʃˈeɪtliɚ nˈɔɜj.", {"tʃˈeɪtliɚ": "ʃɑːtəljˈeɪ"}) == "lə ʃɑːtəljˈeɪ nˈɔɜj.",
+          "swap_tokens thay đúng token, giữ phần còn lại")
+    check(pronunciation.swap_tokens("ɲˈɔ4 tʃˈeɪtliɚ.", {"tʃˈeɪtliɚ": "ʃɑːtəljˈeɪ"}) == "ɲˈɔ4 ʃɑːtəljˈeɪ.",
+          "swap_tokens giữ dấu câu cuối token")
+    check(pronunciation.swap_tokens("ab cd", {"a": "X"}) == "ab cd", "không thay khi chỉ khớp một phần token")
+
+    ep = root / "pron"
+    ep.mkdir()
+    write_script(ep, PRON_SCRIPT)
+    (ep / "pronunciations.json").write_text('{"Hydroxide": "haɪdɹˈɑːksaɪd"}', encoding="utf-8")
+    ml = pronunciation.load(ep)
+    check(ml["hydroxide"] == "haɪdɹˈɑːksaɪd" and ml["chatelier"] == pronunciation.BUILTIN["chatelier"],
+          "load: gộp bảng dựng sẵn với pronunciations.json của bài (khóa chữ thường)")
+    try:
+        (ep / "pronunciations.json").write_text("{", encoding="utf-8")
+        pronunciation.load(ep)
+        check(False, "JSON hỏng phải báo lỗi")
+    except ValueError:
+        check(True, "load: JSON hỏng -> ValueError")
+    (ep / "pronunciations.json").write_text('{"hydroxide": "haɪdɹˈɑːksaɪd"}', encoding="utf-8")
+
+    tts = FakeTTS()
+    logs: list[str] = []
+    r = build.build(ep, CFG, tts, FakeAligner(), log=logs.append)
+    p = store.load(ep)
+    t1 = p.line(1).active_fragments()
+    check(tts.lexicon["chatelier"] and tts.lexicon["hydroxide"], "build đặt bảng phiên âm lên engine")
+    check(all(f.selected_take().pron for f in t1), "fragment có tên chất: take ghi dấu vân tay phiên âm")
+    check(p.line(2).active_fragments()[0].selected_take().pron == "", "fragment không có tên chất: dấu vân tay rỗng")
+    r2 = build.build(ep, CFG, FakeTTS(), FakeAligner(), log=logs.append)
+    check(r2.generated == [], "build lần 2 không sinh lại")
+
+    # đổi phiên âm của 'chatelier': chỉ câu chứa từ đó sinh lại
+    (ep / "pronunciations.json").write_text(
+        '{"hydroxide": "haɪdɹˈɑːksaɪd", "chatelier": "ʃətɛliˈeɪ"}', encoding="utf-8")
+    r3 = build.build(ep, CFG, FakeTTS(), FakeAligner(), log=logs.append)
+    texts = {fid: store.load(ep).fragment(fid).text for fid in r3.generated}
+    check(len(r3.generated) == 1 and "Chatelier" in list(texts.values())[0],
+          f"đổi 'chatelier': chỉ sinh lại câu chứa nó (được {texts})")
+    check(r3.merged == [1], "chỉ line 1 merge lại")
+    # thêm mục không xuất hiện trong lời: không sinh lại
+    (ep / "pronunciations.json").write_text(
+        '{"hydroxide": "haɪdɹˈɑːksaɪd", "chatelier": "ʃətɛliˈeɪ", "iodine": "ˈaɪədˌaɪn"}', encoding="utf-8")
+    r4 = build.build(ep, CFG, FakeTTS(), FakeAligner(), log=logs.append)
+    check(r4.generated == [], "thêm mục không có trong lời: không sinh lại")
+    # dry-run nhìn thấy cùng một kết quả
+    (ep / "pronunciations.json").write_text('{"hydroxide": "x"}', encoding="utf-8")
+    r5, _ = run_dry(ep)
+    check(len(r5.planned) == 2, f"dry-run: đổi 2 mục -> liệt kê 2 câu (được {len(r5.planned)})")
+
+    try:
+        import vieneu_utils.phonemize_text  # noqa: F401
+    except ImportError:
+        print("  (bỏ qua kiểm thử với G2P thật: chưa cài vieneu)")
+        return
+    from app.engine import pron_patch
+    import vieneu_utils.phonemize_text as P
+    pron_patch.install()
+    pron_patch.set_active({})
+    base = P.phonemize_text_with_emotions("Nguyên lí Le Chatelier nói rằng:")
+    pron_patch.set_active(pronunciation.BUILTIN)
+    fixed = P.phonemize_text_with_emotions("Nguyên lí Le Chatelier nói rằng:")
+    pron_patch.set_active({})
+    check("tʃˈeɪtliɚ" in base and "ʃɑːtəljˈeɪ" in fixed and "tʃˈeɪtliɚ" not in fixed,
+          "G2P thật: 'Chatelier' đổi từ 'chéi-tờ-li-ờ' sang phiên âm chuẩn")
+    check(base.replace("tʃˈeɪtliɚ", "ʃɑːtəljˈeɪ") == fixed, "ngoài từ đó, chuỗi âm vị giữ nguyên")
+
+
 def run_dry(ep: Path, cfg=CFG):
     logs: list[str] = []
     r = build.build(ep, cfg, FakeTTS(), FakeAligner(), log=logs.append, dry_run=True)
@@ -460,6 +553,7 @@ def main() -> None:
         test_strict_parser(root)
         test_cues(root)
         test_dry_run(root)
+        test_pronunciation(root)
         test_legacy_project(root)
         test_cli(root)
     print(f"\n[build_check] PASS — {_P} kiểm tra")

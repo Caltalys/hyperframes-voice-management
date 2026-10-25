@@ -22,6 +22,12 @@ from . import audio
 class TTSEngine:
     """Interface: generate(tts_text, voice, gap_s, out_wav, tmp_dir) -> duration_s."""
 
+    lexicon: dict[str, str] = {}   # bảng phiên âm ghi đè (app/pronunciation.py), đặt theo từng bài
+
+    def set_pronunciations(self, lex: dict[str, str] | None) -> None:
+        """Đặt bảng phiên âm cho bài đang build. Backend không hỗ trợ thì chỉ lưu lại."""
+        self.lexicon = dict(lex or {})
+
     def version(self) -> str | None:
         """Phiên bản thư viện TTS, ghi vào Take.engine_version. None = không rõ."""
         return None
@@ -69,11 +75,15 @@ class VieneuTTS(TTSEngine):
         if self._model is None:
             from vieneu import Vieneu  # nặng — chỉ import khi thật sự dùng
             self._model = Vieneu()
+            from . import pron_patch
+            pron_patch.install()
         return self._model
 
     def generate(self, tts_text: str, voice: str, gap_s: float,
                  out_wav: Path, tmp_dir: Path) -> float:
         tts = self._load()
+        from . import pron_patch
+        pron_patch.set_active(self.lexicon)
         chunks = tts_chunks(tts_text)
         tmp_dir.mkdir(parents=True, exist_ok=True)
         paths: list[Path] = []

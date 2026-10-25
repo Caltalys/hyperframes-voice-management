@@ -18,6 +18,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from . import pronunciation
+
 MAX_TAKES = 2  # giữ 2 take gần nhất mỗi fragment (quyết định thiết kế)
 SCHEMA_VERSION = 1
 
@@ -119,6 +121,7 @@ class Take(BaseModel):
     created_at: str
     voice: Optional[str] = None            # giọng lúc sinh; None = take cũ, không rõ
     engine_version: Optional[str] = None   # phiên bản thư viện TTS lúc sinh
+    pron: Optional[str] = None             # dấu vân tay các mục bảng phiên âm liên quan lúc sinh
 
 
 class Fragment(BaseModel):
@@ -145,21 +148,28 @@ class Fragment(BaseModel):
             return None
         return next((t for t in self.takes if t.id == self.selected_take_id), None)
 
-    def is_stale(self, default_gap: float, voice: Optional[str] = None) -> bool:
+    def is_stale(self, default_gap: float, voice: Optional[str] = None,
+                 lexicon: Optional[dict] = None) -> bool:
         """True nếu take đang chọn được sinh từ text/tts/gap khác hiện tại, hoặc
-        (khi truyền voice) bằng giọng khác. Take cũ không ghi voice thì không so."""
+        (khi truyền voice) bằng giọng khác, hoặc (khi truyền lexicon) trước khi các mục bảng
+        phiên âm liên quan tới câu này đổi. Take cũ không ghi voice thì không so voice."""
         t = self.selected_take()
         if not t:
             return False
         if t.content_hash != self.current_hash(default_gap):
             return True
-        return bool(voice and t.voice and t.voice != voice)
+        if voice and t.voice and t.voice != voice:
+            return True
+        if lexicon is not None:
+            return (t.pron or "") != pronunciation.signature(self.effective_tts(), lexicon)
+        return False
 
-    def needs_generation(self, default_gap: float, voice: Optional[str] = None) -> bool:
+    def needs_generation(self, default_gap: float, voice: Optional[str] = None,
+                         lexicon: Optional[dict] = None) -> bool:
         """True nếu fragment active chưa có take được chọn hoặc take đã stale."""
         if self.orphan:
             return False
-        return self.selected_take() is None or self.is_stale(default_gap, voice)
+        return self.selected_take() is None or self.is_stale(default_gap, voice, lexicon)
 
 
 class Merged(BaseModel):
