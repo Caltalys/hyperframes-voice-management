@@ -4,7 +4,9 @@ Cây: Project -> Line (theo frame) -> Fragment -> Take. Fragment là entity hạ
 nhất: có text/tts_text/gap riêng, review + regenerate độc lập, giữ tối đa
 MAX_TAKES bản gần nhất, rồi merge (thủ công) thành line wav.
 
-Voice KHÔNG nằm ở đây — là hằng số toàn cục (config), không tham gia hash.
+Voice là hằng số toàn cục (config) và không tham gia hash. Mỗi Take ghi lại
+voice + engine_version lúc sinh: đổi voice thì take thành stale, đổi phiên bản
+engine thì chỉ cảnh báo (nâng phiên bản là quyết định có chủ ý).
 """
 
 from __future__ import annotations
@@ -46,8 +48,9 @@ def norm_token(tok: str) -> str:
 
 
 def content_hash(text: str, tts_text: Optional[str], gap_s: float) -> str:
-    """Hash nội dung fragment (KHÔNG gồm voice). Dùng để phát hiện lệch giữa
-    text hiện tại và take đã sinh — chỉ để badge cảnh báo, không auto-invalidate."""
+    """Hash nội dung fragment (KHÔNG gồm voice — voice nằm ở Take.voice). Dùng để
+    phát hiện lệch giữa text hiện tại và take đã sinh — chỉ để badge cảnh báo,
+    không auto-invalidate."""
     key = f"{text}|{tts_text or ''}|{gap_s:.3f}"
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
 
@@ -71,6 +74,8 @@ class Take(BaseModel):
     words: list[Word] = Field(default_factory=list)
     content_hash: str              # hash lúc sinh — so với fragment để biết lệch
     created_at: str
+    voice: Optional[str] = None            # giọng lúc sinh; None = take cũ, không rõ
+    engine_version: Optional[str] = None   # phiên bản thư viện TTS lúc sinh
 
 
 class Fragment(BaseModel):
@@ -97,10 +102,21 @@ class Fragment(BaseModel):
             return None
         return next((t for t in self.takes if t.id == self.selected_take_id), None)
 
-    def is_stale(self, default_gap: float) -> bool:
-        """True nếu take đang chọn được sinh từ text/tts/gap khác hiện tại."""
+    def is_stale(self, default_gap: float, voice: Optional[str] = None) -> bool:
+        """True nếu take đang chọn được sinh từ text/tts/gap khác hiện tại, hoặc
+        (khi truyền voice) bằng giọng khác. Take cũ không ghi voice thì không so."""
         t = self.selected_take()
-        return bool(t and t.content_hash != self.current_hash(default_gap))
+        if not t:
+            return False
+        if t.content_hash != self.current_hash(default_gap):
+            return True
+        return bool(voice and t.voice and t.voice != voice)
+
+    def needs_generation(self, default_gap: float, voice: Optional[str] = None) -> bool:
+        """True nếu fragment active chưa có take được chọn hoặc take đã stale."""
+        if self.orphan:
+            return False
+        return self.selected_take() is None or self.is_stale(default_gap, voice)
 
 
 class Merged(BaseModel):

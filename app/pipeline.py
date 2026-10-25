@@ -50,6 +50,7 @@ def generate_take(project: Project, ep: Path, fragment, tts, aligner,
     take = Take(
         id=tid, wav=wav_rel, duration_s=dur, words=words,
         content_hash=fragment.current_hash(default_gap), created_at=_now(),
+        voice=cfg["voice"], engine_version=tts.version(),
     )
     fragment.takes.append(take)
     _prune_takes(ep, fragment)

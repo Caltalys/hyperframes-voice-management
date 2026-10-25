@@ -22,6 +22,10 @@ from . import audio
 class TTSEngine:
     """Interface: generate(tts_text, voice, gap_s, out_wav, tmp_dir) -> duration_s."""
 
+    def version(self) -> str | None:
+        """Phiên bản thư viện TTS, ghi vào Take.engine_version. None = không rõ."""
+        return None
+
     def generate(self, tts_text: str, voice: str, gap_s: float,
                  out_wav: Path, tmp_dir: Path) -> float:
         raise NotImplementedError
@@ -54,6 +58,13 @@ class VieneuTTS(TTSEngine):
     def __init__(self) -> None:
         self._model = None
 
+    def version(self) -> str | None:
+        from importlib import metadata
+        try:
+            return metadata.version("vieneu")
+        except metadata.PackageNotFoundError:
+            return None
+
     def _load(self):
         if self._model is None:
             from vieneu import Vieneu  # nặng — chỉ import khi thật sự dùng
@@ -80,6 +91,9 @@ class VieneuTTS(TTSEngine):
 @register_tts("fake")
 class FakeTTS(TTSEngine):
     """Sine wav ~0.5s mỗi câu — smoke offline, không tải model."""
+
+    def version(self) -> str | None:
+        return "fake"
 
     def generate(self, tts_text: str, voice: str, gap_s: float,
                  out_wav: Path, tmp_dir: Path) -> float:

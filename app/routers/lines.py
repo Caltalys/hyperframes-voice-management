@@ -36,7 +36,8 @@ class FragmentEdit(BaseModel):
 @router.put("/fragments/text")
 async def edit_fragment(body: FragmentEdit) -> dict:
     ep = resolve_ep(body.ep)
-    default_gap = config.load_config()["default_gap_s"]
+    cfg = config.load_config()
+    default_gap, voice = cfg["default_gap_s"], cfg["voice"]
     async with ep_lock(ep):
         project = store.load(ep)
         frag = project.fragment(body.fragment_id)
@@ -58,7 +59,7 @@ async def edit_fragment(body: FragmentEdit) -> dict:
         # take cũ có thể lệch text mới -> badge stale (không tự xóa)
         return {"fragment_id": frag.id, "text": frag.text,
                 "tts_text": frag.tts_text, "gap_s": frag.gap_s,
-                "stale": frag.is_stale(default_gap)}
+                "stale": frag.is_stale(default_gap, voice)}
 
 
 class SplitBody(BaseModel):

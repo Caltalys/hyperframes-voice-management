@@ -158,6 +158,15 @@ def cmd_smoke(args) -> None:
     _check(len(frag.takes) == 2, f"giữ tối đa 2 take (được {len(frag.takes)})")
     _check(frag.selected_take_id == frag.takes[-1].id, "auto-select bản mới nhất")
 
+    # 5b. take ghi voice + engine_version; đổi voice thì take thành stale
+    take = frag.selected_take()
+    gap = cfg["default_gap_s"]
+    _check(take.voice == cfg["voice"] and bool(take.engine_version),
+           f"take ghi voice + engine_version ({take.voice}, {take.engine_version})")
+    _check(not frag.is_stale(gap, cfg["voice"]), "cùng voice -> không stale")
+    _check(frag.is_stale(gap, "Giọng khác"), "đổi voice -> stale")
+    _check(not frag.needs_generation(gap, cfg["voice"]), "take mới đủ điều kiện, không cần sinh lại")
+
     # 6. export audio_meta.json — hợp đồng đầu ra
     meta_path, skipped = pipeline.export_audio_meta(project, ep)
     import json
