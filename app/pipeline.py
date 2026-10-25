@@ -152,7 +152,8 @@ def merge_line(project: Project, ep: Path, line: Line, cfg: dict) -> Merged:
         for w in take.words:
             words.append(Word(id=f"w{len(words)}", text=w.text,
                               start=round(w.start + offset, 2),
-                              end=round(w.end + offset, 2)))
+                              end=round(w.end + offset, 2),
+                              matched=w.matched))
         offset += take.duration_s
         if idx < n - 1:
             offset += frag.effective_gap(default_gap)

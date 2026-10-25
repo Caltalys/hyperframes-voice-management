@@ -68,6 +68,7 @@ class RealAligner:
             for k in range(blk.size):
                 w = ww[blk.a + k]
                 times[blk.b + k] = [w.start, w.end]
+        matched = [t is not None for t in times]  # trước khi nội suy
         total = audio.wav_duration(wav)
         # nội suy các run chưa match, trọng số theo độ dài ký tự
         i = 0
@@ -89,13 +90,15 @@ class RealAligner:
             i = j
         return [
             Word(id=f"w{i}", text=st[i],
-                 start=round(times[i][0], 2), end=round(times[i][1], 2))
+                 start=round(times[i][0], 2), end=round(times[i][1], 2),
+                 matched=matched[i])
             for i in range(len(st))
         ]
 
 
 class FakeAligner:
-    """Chia đều thời lượng wav theo số từ — smoke offline."""
+    """Chia đều thời lượng wav theo số từ — smoke offline. Mọi từ matched=False
+    vì timestamp không đến từ nhận dạng (không dùng để đo độ chính xác)."""
 
     def align(self, text: str, wav: Path) -> list[Word]:
         st = _words_from_text(text)
@@ -105,6 +108,7 @@ class FakeAligner:
         step = total / len(st)
         return [
             Word(id=f"w{i}", text=st[i],
-                 start=round(i * step, 2), end=round((i + 1) * step, 2))
+                 start=round(i * step, 2), end=round((i + 1) * step, 2),
+                 matched=False)
             for i in range(len(st))
         ]

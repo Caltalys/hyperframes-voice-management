@@ -166,7 +166,8 @@ def cmd_smoke(args) -> None:
     _check(len(meta["voices"]) == 2, "2 voices trong audio_meta")
     v = meta["voices"][0]
     _check(set(v) >= {"frame", "path", "duration_s", "words"}, "voices đúng schema")
-    _check(set(v["words"][0]) == {"id", "text", "start", "end"}, "words đúng schema")
+    _check(set(v["words"][0]) == {"id", "text", "start", "end", "matched"},
+           "words đúng schema (có matched)")
     _check("bgm" in meta and "sfx" in meta, "giữ bgm/sfx trong audio_meta")
 
     print(f"\n[smoke] PASS — {_PASS} kiểm tra. Xem output ở {ep}")

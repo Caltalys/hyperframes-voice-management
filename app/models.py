@@ -59,6 +59,9 @@ class Word(BaseModel):
     text: str
     start: float
     end: float
+    # True: timestamp lấy từ kết quả nhận dạng; False: nội suy (hoặc aligner giả).
+    # File cũ thiếu trường này đọc như True.
+    matched: bool = True
 
 
 class Take(BaseModel):
