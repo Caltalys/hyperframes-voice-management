@@ -35,6 +35,37 @@ Config toàn cục ở `~/.hyperframes-vo/config.json` (mẫu: [config.default.j
 
 **Đổi thư viện TTS**: backend đăng ký qua registry ở `app/engine/tts.py`. Thêm thư viện mới = viết 1 lớp `TTSEngine.generate(...)` + `@register_tts("tên")`, rồi đặt `"engine": "tên"` trong config — không sửa `pipeline`/`jobs`/`cli`.
 
+## Lưu ý khi chạy engine thật
+
+Gặp khi chạy `build`/`gen` với `vieneu==3.8.3` + `faster-whisper` lần đầu (Linux, ONNX Runtime 1.29.0):
+
+- **`External data path escapes model directory`** (ONNXRuntimeError, mọi fragment đều lỗi). ONNX Runtime
+  từ chối đọc file dữ liệu ngoài khi đường dẫn thật (sau symlink) nằm ngoài thư mục model, mà cache
+  Hugging Face lưu file model bằng symlink trỏ vào `blobs/`. Cách xử lý: thay symlink trong `snapshots/` bằng
+  bản sao thật, rồi chạy với `HF_HUB_OFFLINE=1` (nếu để online, `huggingface_hub` kiểm tra lại và tạo lại symlink).
+  Tải trước model whisper trước khi chuyển sang offline:
+
+  ```bash
+  python - <<'EOF'
+  import shutil
+  from pathlib import Path
+  from faster_whisper.utils import download_model
+  download_model("small")                      # whisper_model trong config
+  for f in (Path.home() / ".cache/huggingface/hub").glob("models--*/snapshots/*/**/*"):
+      if f.is_symlink():
+          target = f.resolve(); f.unlink(); shutil.copy2(target, f)
+  EOF
+  HF_HUB_OFFLINE=1 python -m app.cli build <ep-dir>
+  ```
+
+  Cần chạy sau khi vieneu đã tải model (lần chạy `build` đầu tiên sẽ lỗi như trên nhưng đã kéo model về cache).
+  Chưa kiểm chứng trên Windows, nơi `huggingface_hub` thường dùng bản sao thay vì symlink.
+- **`open() got an unexpected keyword argument 'metadata_errors'`** (lúc align). PyAV 19.0.2 bỏ tham số
+  `metadata_errors` mà faster-whisper 1.2.1 vẫn truyền. `pyproject.toml` đã chặn `av<19` (PyAV 15.1 đến 18.1
+  đều chạy được); nếu môi trường đã cài PyAV 19, chạy `pip install "av<19"`.
+- **Môi trường chặn mạng:** lần đầu cần truy cập `huggingface.co` và `*.hf.co` (file model đi qua
+  `cas-server.xethub.hf.co` và `us.aws.cdn.hf.co`).
+
 ## Kiểm chứng M0
 
 ```bash
