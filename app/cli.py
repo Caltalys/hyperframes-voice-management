@@ -1,5 +1,7 @@
 """CLI M0 — xương sống engine. Web UI đến ở M3+.
 
+  build  <ep>            SCRIPT.md -> audio_meta.json trọn bài, không cần duyệt tay
+                         (reimport + sinh fragment thiếu/stale + merge + export)
   import <ep>            SCRIPT.md -> project.json
   gen    <ep> --frame N  sinh take cho fragment của line N (TTS thật, cần .[engine])
   merge  <ep> --frame N  ghép take đã chọn -> line wav + words
@@ -30,6 +32,39 @@ def _resolve_engines(full: bool):
 
 
 # ---------- commands ----------
+
+def cmd_build(args) -> None:
+    from .build import build
+    from .jobs import get_engines
+    from .script_io import ScriptError
+
+    ep = Path(args.ep).resolve()
+    if not (ep / "SCRIPT.md").exists():
+        sys.exit(f"không thấy SCRIPT.md trong {ep}")
+    cfg = config.load_config()
+    print(f"[build] {ep}")
+    tts, aligner = get_engines()
+    try:
+        r = build(ep, cfg, tts, aligner)
+    except ScriptError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(2)
+
+    print(f"\n[build] sinh {len(r.generated)} fragment, merge {len(r.merged)} line, "
+          f"engine {r.engine_version or '?'}, voice {cfg['voice']}")
+    if r.words_total:
+        pct = 100 * r.words_unmatched / r.words_total
+        print(f"  từ matched=false: {r.words_unmatched}/{r.words_total} ({pct:.1f}%)")
+    if r.removed:
+        print(f"  line đã bỏ khỏi script (không export): {r.removed}")
+    print(f"  audio_meta: {r.meta_path}")
+    if not r.ok:
+        for fid, err in r.failed:
+            print(f"  LỖI {fid}: {err}", file=sys.stderr)
+        if r.unmerged:
+            print(f"  chưa merge được line {r.unmerged}", file=sys.stderr)
+        sys.exit(1)
+
 
 def cmd_import(args) -> None:
     ep = Path(args.ep).resolve()
@@ -204,6 +239,7 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    sub.add_parser("build").add_argument("ep")
     p = sub.add_parser("import"); p.add_argument("ep")
     p.add_argument("--force", action="store_true")
     for name in ("gen", "merge"):
@@ -214,7 +250,7 @@ def main() -> None:
     p = sub.add_parser("smoke"); p.add_argument("--full", action="store_true")
 
     args = ap.parse_args()
-    {"import": cmd_import, "gen": cmd_gen, "merge": cmd_merge,
+    {"build": cmd_build, "import": cmd_import, "gen": cmd_gen, "merge": cmd_merge,
      "export": cmd_export, "script": cmd_script, "smoke": cmd_smoke}[args.cmd](args)
 
 

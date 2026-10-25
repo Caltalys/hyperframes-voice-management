@@ -131,6 +131,7 @@ class Line(BaseModel):
     title: Optional[str] = None
     time_range: Optional[str] = None
     delivery: Optional[str] = None
+    pause_after_s: Optional[float] = None   # nghỉ sau line; repo video cộng vào timeline
     merged: Optional[Merged] = None
     fragments: list[Fragment] = Field(default_factory=list)
 

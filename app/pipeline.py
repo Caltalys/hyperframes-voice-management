@@ -176,12 +176,15 @@ def export_audio_meta(project: Project, ep: Path) -> tuple[Path, list[int]]:
         if not line.merged:
             skipped.append(line.frame)
             continue
-        voices.append({
+        entry = {
             "frame": line.frame,
             "path": line.merged.wav,
             "duration_s": line.merged.duration_s,
             "words": [w.model_dump() for w in line.merged.words],
-        })
+        }
+        if line.pause_after_s is not None:
+            entry["pause_after_s"] = line.pause_after_s
+        voices.append(entry)
     meta["voices"] = voices
     meta_path.write_text(
         json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

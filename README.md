@@ -64,6 +64,7 @@ thread, đẩy tiến độ qua SSE `GET /api/jobs/stream`; poll `GET /api/jobs/
 ## CLI (M0)
 
 ```bash
+python -m app.cli build  <ep-dir>              # SCRIPT.md -> audio_meta.json trọn bài, không cần duyệt tay
 python -m app.cli import <ep-dir>              # SCRIPT.md -> project.json
 python -m app.cli gen    <ep-dir> --frame N    # sinh take cho fragment của line N (TTS thật)
 python -m app.cli merge  <ep-dir> --frame N    # ghép take đã chọn -> line wav + words
@@ -73,6 +74,35 @@ python -m app.cli script <ep-dir>              # export lại SCRIPT.md từ pro
 
 `<ep-dir>` là thư mục tập bất kỳ có `SCRIPT.md` (vd. một thư mục trong `videos/` của greencore-v2).
 Tool ghi trạng thái vào `<ep-dir>/assets/vo/` và output vào `<ep-dir>/audio_meta.json`.
+
+### `build` — dùng từ hệ thống khác
+
+Hệ thống tạo video khác gọi `vo-studio build <ep-dir>` (subprocess) rồi đọc `audio_meta.json`;
+hai bên chỉ chung hợp đồng file. Engine lấy từ config / env `VO_STUDIO_ENGINE`. Mỗi lần chạy:
+
+1. Parse `SCRIPT.md` **strict**: lỗi cú pháp -> in từng dòng sai, exit 2, chưa đụng gì.
+2. Có `project.json` thì re-import (fragment không đổi giữ nguyên take); chưa có thì tạo mới.
+3. Sinh take cho fragment chưa có take được chọn, hoặc take đã stale (text/tts/gap đổi, hoặc
+   sinh bằng voice khác voice hiện tại). **Không ghi đè** take đã chọn mà không stale.
+4. Merge lại line có fragment vừa sinh, rồi ghi `audio_meta.json`.
+
+Chạy lại khi không đổi gì thì không sinh gì. Một fragment lỗi không dừng build: build chạy tiếp,
+liệt kê lỗi cuối và exit 1; line chưa merge được không lọt vào `audio_meta.json`. Phiên bản
+thư viện TTS khác phiên bản đã sinh take chỉ cảnh báo, không sinh lại. Build in tỷ lệ từ
+`matched=false`.
+
+Định dạng `SCRIPT.md` (chế độ strict của `build`; web/`import` vẫn bỏ qua lặng lẽ dòng lạ):
+
+- Trước `## Line` đầu tiên chỉ có: dòng trống, `# tiêu đề`, `---`, `**Voice direction:**`.
+- Mỗi line: `## Line N` (phần sau N là tiêu đề, `(Frame M)` tùy chọn). Số N là khóa của line.
+- Trong line: `**Time:**`, `**Delivery:**`, `**Pause after:** 0.8s`, `---`, dòng trống, và lời giảng
+  **thụt đúng 4 khoảng trắng**. Dòng khác (kể cả `**Key:**` lạ) là lỗi.
+
+Trường mới trong `audio_meta.json`: `words[].matched` (`false` = timestamp nội suy, không phải
+từ nhận dạng) và `voices[].pause_after_s` (chỉ có khi script khai báo `**Pause after:**`). Mỗi take
+trong `project.json` ghi `voice` và `engine_version` lúc sinh. File cũ thiếu các trường này vẫn đọc được.
+
+Kiểm chứng offline: `python scripts/build_check.py` và `python scripts/matched_check.py`.
 
 ## Cấu trúc
 
