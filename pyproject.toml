@@ -15,6 +15,7 @@ dependencies = [
 engine = [
     "vieneu==3.8.3",
     "faster-whisper",
+    "av<19",  # faster-whisper 1.2.1 gọi av.open(metadata_errors=...), PyAV 19.0.2 bỏ tham số này
 ]
 # Web (milestone M2+).
 web = [
