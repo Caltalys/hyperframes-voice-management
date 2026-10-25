@@ -28,13 +28,13 @@ from __future__ import annotations
 import difflib
 from pathlib import Path
 
-from ..models import Word, norm_token
+from ..models import Word, display_tokens, norm_token
 from . import audio
 
 
 def _words_from_text(text: str) -> list[str]:
     # gạch ngang dùng riêng để ngắt nhịp, không hiển thị thành caption
-    return [t for t in text.split() if t not in ("—", "–")]
+    return display_tokens(text)
 
 
 class Aligner:

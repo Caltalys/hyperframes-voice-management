@@ -8,7 +8,11 @@ Mỗi lần chạy (idempotent):
      (text/tts/gap đổi, hoặc take sinh bằng voice khác). KHÔNG ghi đè take đã
      chọn mà không stale — kết quả người nghe duyệt được giữ.
   4. Merge lại line có fragment vừa sinh hoặc chưa có line wav.
-  5. Export audio_meta.json.
+  5. Phân giải cue trên words[] của từng line đã merge (lỗi: cue không có từ đi
+     kèm; cảnh báo: cue neo vào từ matched=false).
+  6. Export audio_meta.json (voices[].cues).
+
+--dry-run: chỉ liệt kê fragment sẽ sinh, không ghi gì xuống đĩa.
 
 Lỗi một fragment không dừng build: ghi nhận, chạy tiếp, báo cuối (exit != 0).
 Phiên bản engine khác chỉ cảnh báo, không sinh lại.
@@ -37,15 +41,20 @@ class BuildReport:
     engine_version: str | None = None
     words_total: int = 0
     words_unmatched: int = 0
+    cues_total: int = 0
+    cue_errors: list[str] = field(default_factory=list)
+    cue_warnings: list[str] = field(default_factory=list)
+    planned: list[str] = field(default_factory=list)         # dry-run: fragment id sẽ sinh
+    dry_run: bool = False
 
     @property
     def ok(self) -> bool:
-        return not self.failed and not self.unmerged
+        return not self.failed and not self.unmerged and not self.cue_errors
 
 
 def build(ep: Path, cfg: dict, tts, aligner,
-          log: Callable[[str], None] = print) -> BuildReport:
-    report = BuildReport(engine_version=tts.version())
+          log: Callable[[str], None] = print, dry_run: bool = False) -> BuildReport:
+    report = BuildReport(engine_version=tts.version(), dry_run=dry_run)
     default_gap, voice = cfg["default_gap_s"], cfg["voice"]
 
     incoming = script_io.import_script(ep, strict=True)
@@ -63,12 +72,18 @@ def build(ep: Path, cfg: dict, tts, aligner,
     else:
         project = incoming
         report.created = True
-    store.save(ep, project)
 
-    # --- sinh take ---
     todo = [(line, frag) for line in project.lines
             for frag in line.active_fragments()
             if frag.needs_generation(default_gap, voice)]
+    if dry_run:  # không lưu, không sinh: chỉ cho biết build sẽ làm gì
+        report.planned = [frag.id for _line, frag in todo]
+        log(f"  dry-run: sẽ sinh {len(todo)} fragment "
+            f"(engine {report.engine_version or '?'}, voice {voice})")
+        return report
+    store.save(ep, project)
+
+    # --- sinh take ---
     log(f"  sinh {len(todo)} fragment "
         f"(engine {report.engine_version or '?'}, voice {voice})")
     touched: set[int] = set()
@@ -111,6 +126,19 @@ def build(ep: Path, cfg: dict, tts, aligner,
         else:
             report.unmerged.append(line.frame)
     store.save(ep, project)
+
+    # --- cue ---
+    for line in project.lines:
+        if not line.merged:
+            continue
+        cues, errors, warnings = pipeline.resolve_cues(line)
+        report.cues_total += len(cues)
+        report.cue_errors += errors
+        report.cue_warnings += warnings
+    for msg in report.cue_errors:
+        log(f"  LỖI cue: {msg}")
+    for msg in report.cue_warnings:
+        log(f"  CẢNH BÁO cue: {msg}")
 
     # --- export ---
     report.meta_path, _skipped = pipeline.export_audio_meta(project, ep)

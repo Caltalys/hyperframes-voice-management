@@ -164,6 +164,28 @@ def merge_line(project: Project, ep: Path, line: Line, cfg: dict) -> Merged:
     return line.merged
 
 
+def resolve_cues(line: Line) -> tuple[list[dict], list[str], list[str]]:
+    """Phân giải cue của line ĐÃ MERGE trên words[] của cả line (cue có thể nằm ở biên
+    hai fragment). Trả (cues, errors, warnings); cue = {id, word_index, word_id,
+    time_s, matched}. Lỗi: cue không có từ đi kèm. Cảnh báo: neo vào từ matched=false."""
+    cues: list[dict] = []
+    errors: list[str] = []
+    warnings: list[str] = []
+    words = line.merged.words if line.merged else []
+    for c in line.cues:
+        if c.token_index >= len(words):
+            errors.append(f"line {line.frame}: cue {c.id!r} không có từ đi kèm "
+                          f"(chỉ số {c.token_index}, line có {len(words)} từ)")
+            continue
+        w = words[c.token_index]
+        cues.append({"id": c.id, "word_index": c.token_index, "word_id": w.id,
+                     "time_s": w.start, "matched": w.matched})
+        if not w.matched:
+            warnings.append(f"line {line.frame}: cue {c.id!r} neo vào từ {w.text!r} "
+                            "có timestamp nội suy (matched=false), cần nghe kiểm tra")
+    return cues, errors, warnings
+
+
 def export_audio_meta(project: Project, ep: Path) -> tuple[Path, list[int]]:
     """Ghi voices[] vào <ep>/audio_meta.json, GIỮ nguyên bgm/sfx.
     Trả (đường dẫn, danh sách frame CHƯA merge bị bỏ qua)."""
@@ -184,6 +206,9 @@ def export_audio_meta(project: Project, ep: Path) -> tuple[Path, list[int]]:
         }
         if line.pause_after_s is not None:
             entry["pause_after_s"] = line.pause_after_s
+        cues, _errors, _warnings = resolve_cues(line)
+        if cues:
+            entry["cues"] = cues
         voices.append(entry)
     meta["voices"] = voices
     meta_path.write_text(

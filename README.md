@@ -95,7 +95,7 @@ thread, đẩy tiến độ qua SSE `GET /api/jobs/stream`; poll `GET /api/jobs/
 ## CLI (M0)
 
 ```bash
-python -m app.cli build  <ep-dir>              # SCRIPT.md -> audio_meta.json trọn bài, không cần duyệt tay
+python -m app.cli build  <ep-dir> [--dry-run]  # SCRIPT.md -> audio_meta.json trọn bài, không cần duyệt tay
 python -m app.cli import <ep-dir>              # SCRIPT.md -> project.json
 python -m app.cli gen    <ep-dir> --frame N    # sinh take cho fragment của line N (TTS thật)
 python -m app.cli merge  <ep-dir> --frame N    # ghép take đã chọn -> line wav + words
@@ -117,7 +117,7 @@ hai bên chỉ chung hợp đồng file. Engine lấy từ config / env `VO_STUD
    sinh bằng voice khác voice hiện tại). **Không ghi đè** take đã chọn mà không stale.
 4. Merge lại line có fragment vừa sinh, rồi ghi `audio_meta.json`.
 
-Chạy lại khi không đổi gì thì không sinh gì. Một fragment lỗi không dừng build: build chạy tiếp,
+`--dry-run` chỉ liệt kê fragment sẽ sinh, không ghi gì xuống đĩa. Chạy lại khi không đổi gì thì không sinh gì. Một fragment lỗi không dừng build: build chạy tiếp,
 liệt kê lỗi cuối và exit 1; line chưa merge được không lọt vào `audio_meta.json`. Phiên bản
 thư viện TTS khác phiên bản đã sinh take chỉ cảnh báo, không sinh lại. Build in tỷ lệ từ
 `matched=false`.
@@ -128,6 +128,12 @@ thư viện TTS khác phiên bản đã sinh take chỉ cảnh báo, không sinh
 - Mỗi line: `## Line N` (phần sau N là tiêu đề, `(Frame M)` tùy chọn). Số N là khóa của line.
 - Trong line: `**Time:**`, `**Delivery:**`, `**Pause after:** 0.8s`, `---`, dòng trống, và lời giảng
   **thụt đúng 4 khoảng trắng**. Dòng khác (kể cả `**Key:**` lạ) là lỗi.
+
+**Cue** `{{cue:id}}` trong lời giảng (id `[a-z0-9-]+`, duy nhất trong bài, phải có từ ngay sau): bị bỏ khỏi
+text/`tts_text` trước khi tách câu và đọc TTS, không nằm trong hash (dời cue hay đổi id không sinh lại audio).
+Build phân giải cue trên `words[]` của cả line (cue đứng ở biên hai câu vẫn đúng) và ghi
+`voices[].cues = [{id, word_index, word_id, time_s, matched}]`, `time_s` tính từ đầu line. Lỗi: trùng id,
+cue cuối line, id sai dạng. Cảnh báo: cue neo vào từ `matched=false`.
 
 Trường mới trong `audio_meta.json`: `words[].matched` (`false` = timestamp nội suy, không phải
 từ nhận dạng) và `voices[].pause_after_s` (chỉ có khi script khai báo `**Pause after:**`). Mỗi take

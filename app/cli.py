@@ -45,13 +45,19 @@ def cmd_build(args) -> None:
     print(f"[build] {ep}")
     tts, aligner = get_engines()
     try:
-        r = build(ep, cfg, tts, aligner)
+        r = build(ep, cfg, tts, aligner, dry_run=args.dry_run)
     except ScriptError as exc:
         print(exc, file=sys.stderr)
         sys.exit(2)
 
+    if r.dry_run:
+        for fid in r.planned:
+            print(f"  sẽ sinh {fid}")
+        print(f"\n[build --dry-run] {len(r.planned)} fragment cần sinh, chưa ghi gì")
+        return
+
     print(f"\n[build] sinh {len(r.generated)} fragment, merge {len(r.merged)} line, "
-          f"engine {r.engine_version or '?'}, voice {cfg['voice']}")
+          f"{r.cues_total} cue, engine {r.engine_version or '?'}, voice {cfg['voice']}")
     if r.words_total:
         pct = 100 * r.words_unmatched / r.words_total
         print(f"  từ matched=false: {r.words_unmatched}/{r.words_total} ({pct:.1f}%)")
@@ -63,6 +69,8 @@ def cmd_build(args) -> None:
             print(f"  LỖI {fid}: {err}", file=sys.stderr)
         if r.unmerged:
             print(f"  chưa merge được line {r.unmerged}", file=sys.stderr)
+        for msg in r.cue_errors:
+            print(f"  LỖI cue: {msg}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -239,7 +247,9 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("build").add_argument("ep")
+    p = sub.add_parser("build"); p.add_argument("ep")
+    p.add_argument("--dry-run", action="store_true",
+                   help="chỉ liệt kê fragment sẽ sinh, không ghi gì")
     p = sub.add_parser("import"); p.add_argument("ep")
     p.add_argument("--force", action="store_true")
     for name in ("gen", "merge"):

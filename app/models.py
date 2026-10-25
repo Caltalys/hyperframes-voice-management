@@ -41,6 +41,49 @@ def split_sentences(paragraph: str) -> list[str]:
     return tts_chunks(paragraph)
 
 
+def display_tokens(text: str) -> list[str]:
+    """Token hiển thị — cùng quy tắc với aligner: tách theo khoảng trắng, bỏ gạch
+    ngang dùng riêng để ngắt nhịp. Chỉ số cue đánh trên danh sách này."""
+    return [t for t in text.split() if t not in ("—", "–")]
+
+
+_CUE_RE = re.compile(r"\{\{cue:([^{}]*)\}\}")
+CUE_ID_RE = re.compile(r"^[a-z0-9-]+$")
+
+
+def strip_cues(paragraph: str) -> tuple[str, list[tuple[str, int]]]:
+    """Bỏ mọi {{cue:id}} khỏi đoạn lời giảng. Trả (văn bản sạch, [(id, token_index)]);
+    token_index = số token hiển thị đứng TRƯỚC cue, tức chỉ số của từ ngay sau cue
+    (== số token của cả đoạn nếu cue đứng cuối, không có từ đi kèm)."""
+    cues: list[tuple[str, int]] = []
+    parts: list[str] = []
+    pos = count = 0
+    for m in _CUE_RE.finditer(paragraph):
+        seg = paragraph[pos:m.start()]
+        parts.append(seg)
+        count += len(display_tokens(seg))
+        cues.append((m.group(1).strip(), count))
+        pos = m.end()
+    parts.append(paragraph[pos:])
+    return re.sub(r"\s+", " ", " ".join(parts)).strip(), cues
+
+
+def insert_cues(paragraph: str, cues: list["Cue"]) -> str:
+    """Ngược của strip_cues: chèn {{cue:id}} vào trước token hiển thị thứ token_index
+    (dùng khi export lại SCRIPT.md)."""
+    pending = sorted(cues, key=lambda c: c.token_index)
+    out: list[str] = []
+    n = 0
+    for tok in paragraph.split():
+        if tok not in ("—", "–"):
+            while pending and pending[0].token_index <= n:
+                out.append("{{cue:%s}}" % pending.pop(0).id)
+            n += 1
+        out.append(tok)
+    out.extend("{{cue:%s}}" % c.id for c in pending)
+    return " ".join(out)
+
+
 def norm_token(tok: str) -> str:
     """Chuẩn hoá token để so khớp alignment (bỏ dấu câu, lowercase, NFC)."""
     t = unicodedata.normalize("NFC", tok.lower())
@@ -126,12 +169,18 @@ class Merged(BaseModel):
     merged_at: str
 
 
+class Cue(BaseModel):
+    id: str                         # [a-z0-9-]+, duy nhất trong bài
+    token_index: int                # chỉ số (trong words[] của line) của từ ngay sau cue
+
+
 class Line(BaseModel):
     frame: int
     title: Optional[str] = None
     time_range: Optional[str] = None
     delivery: Optional[str] = None
     pause_after_s: Optional[float] = None   # nghỉ sau line; repo video cộng vào timeline
+    cues: list[Cue] = Field(default_factory=list)  # tính lại từ SCRIPT.md mỗi lần build
     merged: Optional[Merged] = None
     fragments: list[Fragment] = Field(default_factory=list)
 

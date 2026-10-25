@@ -8,7 +8,11 @@ Nghiệm thu theo đặc tả v3:
 - một fragment lỗi không dừng build, line đó không lọt vào audio_meta;
 - parser strict báo đúng dòng cho trường lạ / lời giảng thụt sai / nội dung trước
   Line đầu / Pause after sai; parser lenient giữ hành vi cũ;
-- project.json cũ (thiếu matched/voice/engine_version/pause_after_s) vẫn đọc được.
+- cue: loại khỏi text/TTS, phân giải ở mức line (kể cả cue ở biên hai fragment), hash
+  không tính cue (dời cue không sinh lại audio), export_script chèn lại cue, lỗi
+  strict (trùng id, cue cuối line, id sai dạng, cú pháp {{...}} sai);
+- build --dry-run chỉ liệt kê, không ghi file;
+- project.json cũ (thiếu matched/voice/engine_version/pause_after_s/cues) vẫn đọc được.
 
 Chạy: python scripts/build_check.py
 """
@@ -266,6 +270,135 @@ def test_strict_parser(root: Path) -> None:
           "script export lại vẫn qua strict")
 
 
+CUE_SCRIPT = """# SCRIPT - cue
+
+---
+
+## Line 1 - Cue
+
+**Pause after:** 0.5s
+
+    Đun nóng thuốc tím, ta thu được khí oxi. {{cue:phuong-trinh}} Trong điều kiện đó, các chất không kết hợp lại. Khi làm lạnh bình {{cue:lanh-nhat}} thì màu nhạt đi.
+
+## Line 2 - Hai
+
+    {{cue:dau-line}} Câu đầu của line hai.
+"""
+
+
+class NoBraceTTS(FakeTTS):
+    """Fake TTS khẳng định cue không lọt vào văn bản đưa cho TTS."""
+
+    def generate(self, tts_text, voice, gap_s, out_wav, tmp_dir):
+        assert "{{" not in tts_text and "}}" not in tts_text, tts_text
+        return super().generate(tts_text, voice, gap_s, out_wav, tmp_dir)
+
+
+def test_cues(root: Path) -> None:
+    print("\n[cue] loại khỏi text/TTS, phân giải ở mức line, hash không tính cue")
+    ep = root / "cue"
+    ep.mkdir()
+    write_script(ep, CUE_SCRIPT)
+    r, logs = run(ep, tts=NoBraceTTS())
+    check(r.ok and r.cues_total == 3, f"3 cue qua build (được {r.cues_total})")
+    p = store.load(ep)
+    texts = [f.text for l in p.lines for f in l.fragments]
+    check(not any("{{" in t for t in texts), "text fragment không còn cue")
+    m = meta(ep)
+    cues = {c["id"]: c for v in m["voices"] for c in v.get("cues", [])}
+    words1 = m["voices"][0]["words"]
+    check(words1[cues["phuong-trinh"]["word_index"]]["text"] == "Trong",
+          "cue ở biên hai fragment neo vào từ 'Trong' (phân giải mức line)")
+    check(words1[cues["lanh-nhat"]["word_index"]]["text"] == "thì", "cue giữa câu neo vào 'thì'")
+    check(m["voices"][1]["words"][cues["dau-line"]["word_index"]]["text"] == "Câu",
+          "cue đầu line neo vào từ đầu tiên")
+    check(cues["phuong-trinh"]["time_s"] == words1[cues["phuong-trinh"]["word_index"]]["start"],
+          "time_s = start của từ neo")
+    check(any("CẢNH BÁO cue" in x for x in logs) and r.cue_warnings,
+          "cue neo vào từ matched=false -> cảnh báo (aligner giả)")
+
+    ids_before = {f.id: f.selected_take_id for l in p.lines for f in l.fragments}
+    # sửa chữ TRƯỚC cue phuong-trinh: chỉ fragment đó sinh lại, cue vẫn neo vào 'Trong'
+    write_script(ep, CUE_SCRIPT.replace("ta thu được khí oxi", "ta thu được một ít khí oxi"))
+    r2, _ = run(ep, tts=NoBraceTTS())
+    check(len(r2.generated) == 1, f"sửa chữ quanh cue chỉ sinh lại 1 fragment (được {r2.generated})")
+    m2 = meta(ep)
+    c2 = {c["id"]: c for v in m2["voices"] for c in v.get("cues", [])}
+    w2 = m2["voices"][0]["words"]
+    check(w2[c2["phuong-trinh"]["word_index"]]["text"] == "Trong"
+          and c2["phuong-trinh"]["word_index"] == cues["phuong-trinh"]["word_index"] + 2,
+          "thêm 2 từ trước cue: chỉ số dịch +2, vẫn neo vào 'Trong'")
+
+    # chỉ dời cue (không đổi chữ): không sinh lại audio, nhưng vị trí cue cập nhật
+    moved = CUE_SCRIPT.replace("ta thu được khí oxi", "ta thu được một ít khí oxi") \
+        .replace("Khi làm lạnh bình {{cue:lanh-nhat}} thì", "Khi làm lạnh {{cue:lanh-nhat}} bình thì")
+    write_script(ep, moved)
+    r3, _ = run(ep, tts=NoBraceTTS())
+    check(r3.generated == [] and r3.merged == [], "chỉ dời cue: không sinh lại, không merge lại")
+    m3 = meta(ep)
+    c3 = {c["id"]: c for v in m3["voices"] for c in v.get("cues", [])}
+    check(c3["lanh-nhat"]["word_index"] == c2["lanh-nhat"]["word_index"] - 1,
+          "cue dời 1 từ: word_index giảm 1 trong audio_meta")
+
+    # đổi id cue: audio giữ nguyên, id mới xuất hiện
+    write_script(ep, moved.replace("lanh-nhat", "lanh-mau-nhat"))
+    r4, _ = run(ep, tts=NoBraceTTS())
+    ids = {c["id"] for v in meta(ep)["voices"] for c in v.get("cues", [])}
+    check(r4.generated == [] and "lanh-mau-nhat" in ids and "lanh-nhat" not in ids,
+          "đổi id cue: không sinh lại, audio_meta có id mới")
+
+    # export_script giữ cue
+    back = script_io.export_script(store.load(ep))
+    check("{{cue:phuong-trinh}} Trong" in back and "{{cue:dau-line}} Câu" in back,
+          "export_script chèn lại cue đúng vị trí")
+
+    print("[cue] lỗi parser strict")
+    def issues(text: str) -> list[str]:
+        write_script(ep, text)
+        try:
+            script_io.import_script(ep, strict=True)
+        except ScriptError as exc:
+            return exc.issues
+        return []
+    check(any("trùng" in g and "phuong-trinh" in g
+              for g in issues(CUE_SCRIPT.replace("dau-line", "phuong-trinh"))), "cue trùng id -> lỗi")
+    check(any("không có từ đi kèm" in g
+              for g in issues(CUE_SCRIPT.replace("màu nhạt đi.", "màu nhạt đi. {{cue:cuoi}}"))),
+          "cue cuối line -> lỗi")
+    check(any("không hợp lệ" in g and "Viet_Hoa" in g
+              for g in issues(CUE_SCRIPT.replace("dau-line", "Viet_Hoa"))), "id sai dạng -> lỗi")
+    got = issues(CUE_SCRIPT.replace("{{cue:dau-line}}", "{{cuu:x}}"))
+    check(any("{{" in g for g in got), f"cú pháp {{{{...}}}} sai -> lỗi ({got})")
+
+
+def test_dry_run(root: Path) -> None:
+    print("\n[dry-run] chỉ liệt kê, không ghi gì")
+    ep = root / "dry"
+    ep.mkdir()
+    write_script(ep, SCRIPT)
+    r, _ = run_dry(ep)
+    check(len(r.planned) == 4 and r.dry_run, f"dry-run bài mới liệt kê 4 fragment (được {len(r.planned)})")
+    check(not (ep / "assets").exists() and not (ep / "audio_meta.json").exists(),
+          "dry-run không tạo file nào")
+    run(ep)
+    snap = store.project_path(ep).read_text(encoding="utf-8")
+    r2, _ = run_dry(ep)
+    check(r2.planned == [], "build xong rồi: dry-run không còn gì để sinh")
+    r3, _ = run_dry(ep, cfg={**CFG, "voice": "Giọng khác"})
+    check(len(r3.planned) == 4, "đổi voice: dry-run liệt kê đúng 4 fragment dùng giọng cũ")
+    write_script(ep, SCRIPT.replace("theo chiều thuận", "theo chiều nghịch"))
+    r4, _ = run_dry(ep)
+    check(len(r4.planned) == 1, "sửa một câu: dry-run liệt kê đúng 1 fragment")
+    check(store.project_path(ep).read_text(encoding="utf-8") == snap,
+          "dry-run không đổi project.json (kể cả khi script đã sửa)")
+
+
+def run_dry(ep: Path, cfg=CFG):
+    logs: list[str] = []
+    r = build.build(ep, cfg, FakeTTS(), FakeAligner(), log=logs.append, dry_run=True)
+    return r, logs
+
+
 def test_legacy_project(root: Path) -> None:
     print("\n[tương thích] project.json cũ")
     ep = root / "cu"
@@ -325,6 +458,8 @@ def main() -> None:
         test_failure_isolated(root)
         test_removed_line(root)
         test_strict_parser(root)
+        test_cues(root)
+        test_dry_run(root)
         test_legacy_project(root)
         test_cli(root)
     print(f"\n[build_check] PASS — {_P} kiểm tra")

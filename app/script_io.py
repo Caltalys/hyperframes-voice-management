@@ -10,6 +10,8 @@ Delivery/Pause after/Voice direction) để export dựng lại đúng định d
 - Mỗi line bắt đầu bằng '## Line N' (phần sau N là tiêu đề, '(Frame M)' tùy chọn).
 - Trong line: '**Time:**', '**Delivery:**', '**Pause after:** <số>s', '---', dòng
   trống, và lời giảng thụt ĐÚNG 4 khoảng trắng.
+- Lời giảng có thể chứa cue '{{cue:id}}' (id dạng [a-z0-9-]+, duy nhất trong bài, phải
+  có từ ngay sau). Cue bị bỏ khỏi text/tts_text và lưu ở Line.cues (chỉ số token).
 import_script mặc định bỏ qua lặng lẽ dòng không nhận diện (tương thích kịch bản
 hyperframes cũ); strict=True báo lỗi kèm số dòng — lệnh build dùng chế độ này.
 """
@@ -19,7 +21,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .models import Fragment, Line, Project, split_sentences
+from .models import (CUE_ID_RE, Cue, Fragment, Line, Project, display_tokens,
+                     insert_cues, split_sentences, strip_cues)
 
 _LINE_RE = re.compile(r"^##\s*Line\s+(\d+)\s*(.*)$")
 _FRAME_TAIL_RE = re.compile(r"\s*\(Frame\s+\d+\)\s*$")
@@ -64,14 +67,36 @@ def parse_script(ep: Path) -> tuple[Project, list[str]]:
     cur_at = 0                       # số dòng của '## Line' hiện tại
     cur_mark = 0                     # len(issues) lúc bắt đầu line hiện tại
     text_buf: list[str] = []
+    buf_at: list[int] = []           # số dòng tương ứng từng phần tử text_buf
     seen: dict[int, int] = {}        # frame -> số dòng khai báo
+    cue_seen: dict[str, int] = {}    # cue id -> số dòng khai báo (duy nhất trong bài)
+
+    def cue_line(cue_id: str) -> int:
+        tag = "{{cue:%s}}" % cue_id
+        return next((at for at, t in zip(buf_at, text_buf) if tag in t), cur_at)
 
     def flush() -> None:
         if cur is None:
             return
         paragraph = " ".join(text_buf).strip()
-        if paragraph:
-            for seq, sent in enumerate(split_sentences(paragraph)):
+        clean, cues = strip_cues(paragraph)
+        total = len(display_tokens(clean))
+        for cid, idx in cues:
+            at = cue_line(cid)
+            if not CUE_ID_RE.match(cid):
+                issues.append(f"dòng {at}: cue id {cid!r} không hợp lệ (chỉ a-z, 0-9, '-')")
+            elif cid in cue_seen:
+                issues.append(f"dòng {at}: cue {cid!r} trùng (đã khai báo ở dòng {cue_seen[cid]})")
+            else:
+                cue_seen[cid] = at
+            if idx >= total:
+                issues.append(f"dòng {at}: cue {cid!r} không có từ đi kèm (đứng cuối line)")
+            cur.cues.append(Cue(id=cid, token_index=idx))
+        if "{{" in clean or "}}" in clean:
+            issues.append(f"dòng {buf_at[0] if buf_at else cur_at}: cú pháp '{{{{...}}}}' "
+                          "không hợp lệ, chỉ hỗ trợ {{cue:id}}")
+        if clean:
+            for seq, sent in enumerate(split_sentences(clean)):
                 cur.fragments.append(
                     Fragment(id=f"f-{cur.frame}-{seq}", text=sent)
                 )
@@ -91,7 +116,7 @@ def parse_script(ep: Path) -> tuple[Project, list[str]]:
             cur = Line(frame=frame, title=_title_from_header(m.group(2)))
             cur_at = n
             cur_mark = len(issues)
-            text_buf = []
+            text_buf, buf_at = [], []
             continue
 
         blank = not raw.strip()
@@ -123,6 +148,7 @@ def parse_script(ep: Path) -> tuple[Project, list[str]]:
             continue
         if _BODY_RE.match(raw):
             text_buf.append(raw.strip())
+            buf_at.append(n)
             continue
         if blank or _HR_RE.match(raw):
             continue
@@ -213,10 +239,12 @@ def reimport_project(existing: Project, incoming: Project, apply: bool) -> dict:
         old_orphans = [f for f in pool if f.id not in used and was_orphan[f.id]]
 
         restored = [f for f in matched if was_orphan.get(f.id)]
-        meta_changed = (old.title, old.time_range, old.delivery, old.pause_after_s) != (
-            inc.title, inc.time_range, inc.delivery, inc.pause_after_s)
+        meta_changed = (old.title, old.time_range, old.delivery, old.pause_after_s,
+                        old.cues) != (inc.title, inc.time_range, inc.delivery,
+                                      inc.pause_after_s, inc.cues)
         old.title, old.time_range, old.delivery = inc.title, inc.time_range, inc.delivery
         old.pause_after_s = inc.pause_after_s
+        old.cues = inc.cues  # chỉ ảnh hưởng export, không làm line wav cũ mất hiệu lực
         old.fragments = matched + orphaned + old_orphans
         if added or orphaned or restored:
             old.merged = None  # tập fragment active đã đổi -> line wav cũ không còn hợp lệ
@@ -268,6 +296,6 @@ def export_script(project: Project) -> str:
         if line.time_range or line.delivery or line.pause_after_s is not None:
             out.append("")
         paragraph = " ".join(f.text for f in line.active_fragments()).strip()
-        out.append(f"    {paragraph}")
+        out.append(f"    {insert_cues(paragraph, line.cues)}")
         out.append("")
     return "\n".join(out).rstrip() + "\n"
