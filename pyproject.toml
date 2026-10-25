@@ -13,7 +13,7 @@ dependencies = [
 [project.optional-dependencies]
 # Engine TTS + align thật (nặng, tải model). Cài qua: pip install -e ".[engine]"
 engine = [
-    "vieneu",
+    "vieneu>=3.0",
     "faster-whisper",
 ]
 # Web (milestone M2+).

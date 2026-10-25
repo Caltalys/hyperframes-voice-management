@@ -68,7 +68,7 @@ class VieneuTTS(TTSEngine):
         paths: list[Path] = []
         for i, c in enumerate(chunks):
             p = tmp_dir / f"chunk-{i}.wav"
-            out = tts.infer(c, voice=voice)
+            out = tts.infer(c, voice=voice, apply_watermark=False)
             tts.save(out, str(p))
             paths.append(p)
         dur = audio.concat_wavs(paths, out_wav, gap_s, trim=True)
