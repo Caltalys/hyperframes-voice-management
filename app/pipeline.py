@@ -17,6 +17,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import pronunciation
 from .models import MAX_TAKES, Fragment, Line, Merged, Project, Take, Word
 
 
@@ -50,6 +51,8 @@ def generate_take(project: Project, ep: Path, fragment, tts, aligner,
     take = Take(
         id=tid, wav=wav_rel, duration_s=dur, words=words,
         content_hash=fragment.current_hash(default_gap), created_at=_now(),
+        voice=cfg["voice"], engine_version=tts.version(),
+        pron=pronunciation.signature(fragment.effective_tts(), getattr(tts, "lexicon", None)),
     )
     fragment.takes.append(take)
     _prune_takes(ep, fragment)
@@ -152,7 +155,8 @@ def merge_line(project: Project, ep: Path, line: Line, cfg: dict) -> Merged:
         for w in take.words:
             words.append(Word(id=f"w{len(words)}", text=w.text,
                               start=round(w.start + offset, 2),
-                              end=round(w.end + offset, 2)))
+                              end=round(w.end + offset, 2),
+                              matched=w.matched))
         offset += take.duration_s
         if idx < n - 1:
             offset += frag.effective_gap(default_gap)
@@ -160,6 +164,28 @@ def merge_line(project: Project, ep: Path, line: Line, cfg: dict) -> Merged:
     line.merged = Merged(wav=merged_rel, duration_s=dur, words=words,
                          merged_at=_now())
     return line.merged
+
+
+def resolve_cues(line: Line) -> tuple[list[dict], list[str], list[str]]:
+    """Phân giải cue của line ĐÃ MERGE trên words[] của cả line (cue có thể nằm ở biên
+    hai fragment). Trả (cues, errors, warnings); cue = {id, word_index, word_id,
+    time_s, matched}. Lỗi: cue không có từ đi kèm. Cảnh báo: neo vào từ matched=false."""
+    cues: list[dict] = []
+    errors: list[str] = []
+    warnings: list[str] = []
+    words = line.merged.words if line.merged else []
+    for c in line.cues:
+        if c.token_index >= len(words):
+            errors.append(f"line {line.frame}: cue {c.id!r} không có từ đi kèm "
+                          f"(chỉ số {c.token_index}, line có {len(words)} từ)")
+            continue
+        w = words[c.token_index]
+        cues.append({"id": c.id, "word_index": c.token_index, "word_id": w.id,
+                     "time_s": w.start, "matched": w.matched})
+        if not w.matched:
+            warnings.append(f"line {line.frame}: cue {c.id!r} neo vào từ {w.text!r} "
+                            "có timestamp nội suy (matched=false), cần nghe kiểm tra")
+    return cues, errors, warnings
 
 
 def export_audio_meta(project: Project, ep: Path) -> tuple[Path, list[int]]:
@@ -174,12 +200,18 @@ def export_audio_meta(project: Project, ep: Path) -> tuple[Path, list[int]]:
         if not line.merged:
             skipped.append(line.frame)
             continue
-        voices.append({
+        entry = {
             "frame": line.frame,
             "path": line.merged.wav,
             "duration_s": line.merged.duration_s,
             "words": [w.model_dump() for w in line.merged.words],
-        })
+        }
+        if line.pause_after_s is not None:
+            entry["pause_after_s"] = line.pause_after_s
+        cues, _errors, _warnings = resolve_cues(line)
+        if cues:
+            entry["cues"] = cues
+        voices.append(entry)
     meta["voices"] = voices
     meta_path.write_text(
         json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

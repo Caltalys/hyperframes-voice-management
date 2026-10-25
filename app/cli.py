@@ -1,5 +1,7 @@
 """CLI M0 — xương sống engine. Web UI đến ở M3+.
 
+  build  <ep>            SCRIPT.md -> audio_meta.json trọn bài, không cần duyệt tay
+                         (reimport + sinh fragment thiếu/stale + merge + export)
   import <ep>            SCRIPT.md -> project.json
   gen    <ep> --frame N  sinh take cho fragment của line N (TTS thật, cần .[engine])
   merge  <ep> --frame N  ghép take đã chọn -> line wav + words
@@ -30,6 +32,47 @@ def _resolve_engines(full: bool):
 
 
 # ---------- commands ----------
+
+def cmd_build(args) -> None:
+    from .build import build
+    from .jobs import get_engines
+    from .script_io import ScriptError
+
+    ep = Path(args.ep).resolve()
+    if not (ep / "SCRIPT.md").exists():
+        sys.exit(f"không thấy SCRIPT.md trong {ep}")
+    cfg = config.load_config()
+    print(f"[build] {ep}")
+    tts, aligner = get_engines()
+    try:
+        r = build(ep, cfg, tts, aligner, dry_run=args.dry_run)
+    except ScriptError as exc:
+        print(exc, file=sys.stderr)
+        sys.exit(2)
+
+    if r.dry_run:
+        for fid in r.planned:
+            print(f"  sẽ sinh {fid}")
+        print(f"\n[build --dry-run] {len(r.planned)} fragment cần sinh, chưa ghi gì")
+        return
+
+    print(f"\n[build] sinh {len(r.generated)} fragment, merge {len(r.merged)} line, "
+          f"{r.cues_total} cue, engine {r.engine_version or '?'}, voice {cfg['voice']}")
+    if r.words_total:
+        pct = 100 * r.words_unmatched / r.words_total
+        print(f"  từ matched=false: {r.words_unmatched}/{r.words_total} ({pct:.1f}%)")
+    if r.removed:
+        print(f"  line đã bỏ khỏi script (không export): {r.removed}")
+    print(f"  audio_meta: {r.meta_path}")
+    if not r.ok:
+        for fid, err in r.failed:
+            print(f"  LỖI {fid}: {err}", file=sys.stderr)
+        if r.unmerged:
+            print(f"  chưa merge được line {r.unmerged}", file=sys.stderr)
+        for msg in r.cue_errors:
+            print(f"  LỖI cue: {msg}", file=sys.stderr)
+        sys.exit(1)
+
 
 def cmd_import(args) -> None:
     ep = Path(args.ep).resolve()
@@ -158,6 +201,15 @@ def cmd_smoke(args) -> None:
     _check(len(frag.takes) == 2, f"giữ tối đa 2 take (được {len(frag.takes)})")
     _check(frag.selected_take_id == frag.takes[-1].id, "auto-select bản mới nhất")
 
+    # 5b. take ghi voice + engine_version; đổi voice thì take thành stale
+    take = frag.selected_take()
+    gap = cfg["default_gap_s"]
+    _check(take.voice == cfg["voice"] and bool(take.engine_version),
+           f"take ghi voice + engine_version ({take.voice}, {take.engine_version})")
+    _check(not frag.is_stale(gap, cfg["voice"]), "cùng voice -> không stale")
+    _check(frag.is_stale(gap, "Giọng khác"), "đổi voice -> stale")
+    _check(not frag.needs_generation(gap, cfg["voice"]), "take mới đủ điều kiện, không cần sinh lại")
+
     # 6. export audio_meta.json — hợp đồng đầu ra
     meta_path, skipped = pipeline.export_audio_meta(project, ep)
     import json
@@ -166,7 +218,8 @@ def cmd_smoke(args) -> None:
     _check(len(meta["voices"]) == 2, "2 voices trong audio_meta")
     v = meta["voices"][0]
     _check(set(v) >= {"frame", "path", "duration_s", "words"}, "voices đúng schema")
-    _check(set(v["words"][0]) == {"id", "text", "start", "end"}, "words đúng schema")
+    _check(set(v["words"][0]) == {"id", "text", "start", "end", "matched"},
+           "words đúng schema (có matched)")
     _check("bgm" in meta and "sfx" in meta, "giữ bgm/sfx trong audio_meta")
 
     print(f"\n[smoke] PASS — {_PASS} kiểm tra. Xem output ở {ep}")
@@ -194,6 +247,9 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    p = sub.add_parser("build"); p.add_argument("ep")
+    p.add_argument("--dry-run", action="store_true",
+                   help="chỉ liệt kê fragment sẽ sinh, không ghi gì")
     p = sub.add_parser("import"); p.add_argument("ep")
     p.add_argument("--force", action="store_true")
     for name in ("gen", "merge"):
@@ -204,7 +260,7 @@ def main() -> None:
     p = sub.add_parser("smoke"); p.add_argument("--full", action="store_true")
 
     args = ap.parse_args()
-    {"import": cmd_import, "gen": cmd_gen, "merge": cmd_merge,
+    {"build": cmd_build, "import": cmd_import, "gen": cmd_gen, "merge": cmd_merge,
      "export": cmd_export, "script": cmd_script, "smoke": cmd_smoke}[args.cmd](args)
 
 

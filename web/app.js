@@ -117,7 +117,7 @@ function renderRail() {
           el("span", { class: "badge " + st.cls, text: st.text }),
         ]),
         el("div", { class: "title", text: line.title || "" }),
-        stale ? el("span", { class: "badge warn", text: "⚠ text đổi" }) : null,
+        stale ? el("span", { class: "badge warn", text: "⚠ text/giọng đổi" }) : null,
         marked ? el("span", { class: "badge mark", text: "🔖 " + marked }) : null,
       ])
     );
@@ -209,7 +209,7 @@ function renderFragment(frag, isLast) {
     ]),
     el("div", { class: "frag-actions" }, [
       el("span", { class: "frag-id", text: frag.id }),
-      frag.stale ? el("span", { class: "badge warn", text: "⚠ take lệch text hiện tại" }) : null,
+      frag.stale ? el("span", { class: "badge warn", text: "⚠ take lệch text/giọng hiện tại" }) : null,
       el("span", { class: "badge mark hidden", text: "🔖 cần gen lại" }),
       el("span", { class: "badge gen hidden", text: "⏳ đang tạo…" }),
       el("button", { class: "btn-gen", text: "↻ Generate",

@@ -4,7 +4,9 @@ Cây: Project -> Line (theo frame) -> Fragment -> Take. Fragment là entity hạ
 nhất: có text/tts_text/gap riêng, review + regenerate độc lập, giữ tối đa
 MAX_TAKES bản gần nhất, rồi merge (thủ công) thành line wav.
 
-Voice KHÔNG nằm ở đây — là hằng số toàn cục (config), không tham gia hash.
+Voice là hằng số toàn cục (config) và không tham gia hash. Mỗi Take ghi lại
+voice + engine_version lúc sinh: đổi voice thì take thành stale, đổi phiên bản
+engine thì chỉ cảnh báo (nâng phiên bản là quyết định có chủ ý).
 """
 
 from __future__ import annotations
@@ -15,6 +17,8 @@ import unicodedata
 from typing import Optional
 
 from pydantic import BaseModel, Field
+
+from . import pronunciation
 
 MAX_TAKES = 2  # giữ 2 take gần nhất mỗi fragment (quyết định thiết kế)
 SCHEMA_VERSION = 1
@@ -39,6 +43,49 @@ def split_sentences(paragraph: str) -> list[str]:
     return tts_chunks(paragraph)
 
 
+def display_tokens(text: str) -> list[str]:
+    """Token hiển thị — cùng quy tắc với aligner: tách theo khoảng trắng, bỏ gạch
+    ngang dùng riêng để ngắt nhịp. Chỉ số cue đánh trên danh sách này."""
+    return [t for t in text.split() if t not in ("—", "–")]
+
+
+_CUE_RE = re.compile(r"\{\{cue:([^{}]*)\}\}")
+CUE_ID_RE = re.compile(r"^[a-z0-9-]+$")
+
+
+def strip_cues(paragraph: str) -> tuple[str, list[tuple[str, int]]]:
+    """Bỏ mọi {{cue:id}} khỏi đoạn lời giảng. Trả (văn bản sạch, [(id, token_index)]);
+    token_index = số token hiển thị đứng TRƯỚC cue, tức chỉ số của từ ngay sau cue
+    (== số token của cả đoạn nếu cue đứng cuối, không có từ đi kèm)."""
+    cues: list[tuple[str, int]] = []
+    parts: list[str] = []
+    pos = count = 0
+    for m in _CUE_RE.finditer(paragraph):
+        seg = paragraph[pos:m.start()]
+        parts.append(seg)
+        count += len(display_tokens(seg))
+        cues.append((m.group(1).strip(), count))
+        pos = m.end()
+    parts.append(paragraph[pos:])
+    return re.sub(r"\s+", " ", " ".join(parts)).strip(), cues
+
+
+def insert_cues(paragraph: str, cues: list["Cue"]) -> str:
+    """Ngược của strip_cues: chèn {{cue:id}} vào trước token hiển thị thứ token_index
+    (dùng khi export lại SCRIPT.md)."""
+    pending = sorted(cues, key=lambda c: c.token_index)
+    out: list[str] = []
+    n = 0
+    for tok in paragraph.split():
+        if tok not in ("—", "–"):
+            while pending and pending[0].token_index <= n:
+                out.append("{{cue:%s}}" % pending.pop(0).id)
+            n += 1
+        out.append(tok)
+    out.extend("{{cue:%s}}" % c.id for c in pending)
+    return " ".join(out)
+
+
 def norm_token(tok: str) -> str:
     """Chuẩn hoá token để so khớp alignment (bỏ dấu câu, lowercase, NFC)."""
     t = unicodedata.normalize("NFC", tok.lower())
@@ -46,8 +93,9 @@ def norm_token(tok: str) -> str:
 
 
 def content_hash(text: str, tts_text: Optional[str], gap_s: float) -> str:
-    """Hash nội dung fragment (KHÔNG gồm voice). Dùng để phát hiện lệch giữa
-    text hiện tại và take đã sinh — chỉ để badge cảnh báo, không auto-invalidate."""
+    """Hash nội dung fragment (KHÔNG gồm voice — voice nằm ở Take.voice). Dùng để
+    phát hiện lệch giữa text hiện tại và take đã sinh — chỉ để badge cảnh báo,
+    không auto-invalidate."""
     key = f"{text}|{tts_text or ''}|{gap_s:.3f}"
     return hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
 
@@ -59,6 +107,9 @@ class Word(BaseModel):
     text: str
     start: float
     end: float
+    # True: timestamp lấy từ kết quả nhận dạng; False: nội suy (hoặc aligner giả).
+    # File cũ thiếu trường này đọc như True.
+    matched: bool = True
 
 
 class Take(BaseModel):
@@ -68,6 +119,9 @@ class Take(BaseModel):
     words: list[Word] = Field(default_factory=list)
     content_hash: str              # hash lúc sinh — so với fragment để biết lệch
     created_at: str
+    voice: Optional[str] = None            # giọng lúc sinh; None = take cũ, không rõ
+    engine_version: Optional[str] = None   # phiên bản thư viện TTS lúc sinh
+    pron: Optional[str] = None             # dấu vân tay các mục bảng phiên âm liên quan lúc sinh
 
 
 class Fragment(BaseModel):
@@ -94,10 +148,28 @@ class Fragment(BaseModel):
             return None
         return next((t for t in self.takes if t.id == self.selected_take_id), None)
 
-    def is_stale(self, default_gap: float) -> bool:
-        """True nếu take đang chọn được sinh từ text/tts/gap khác hiện tại."""
+    def is_stale(self, default_gap: float, voice: Optional[str] = None,
+                 lexicon: Optional[dict] = None) -> bool:
+        """True nếu take đang chọn được sinh từ text/tts/gap khác hiện tại, hoặc
+        (khi truyền voice) bằng giọng khác, hoặc (khi truyền lexicon) trước khi các mục bảng
+        phiên âm liên quan tới câu này đổi. Take cũ không ghi voice thì không so voice."""
         t = self.selected_take()
-        return bool(t and t.content_hash != self.current_hash(default_gap))
+        if not t:
+            return False
+        if t.content_hash != self.current_hash(default_gap):
+            return True
+        if voice and t.voice and t.voice != voice:
+            return True
+        if lexicon is not None:
+            return (t.pron or "") != pronunciation.signature(self.effective_tts(), lexicon)
+        return False
+
+    def needs_generation(self, default_gap: float, voice: Optional[str] = None,
+                         lexicon: Optional[dict] = None) -> bool:
+        """True nếu fragment active chưa có take được chọn hoặc take đã stale."""
+        if self.orphan:
+            return False
+        return self.selected_take() is None or self.is_stale(default_gap, voice, lexicon)
 
 
 class Merged(BaseModel):
@@ -107,11 +179,18 @@ class Merged(BaseModel):
     merged_at: str
 
 
+class Cue(BaseModel):
+    id: str                         # [a-z0-9-]+, duy nhất trong bài
+    token_index: int                # chỉ số (trong words[] của line) của từ ngay sau cue
+
+
 class Line(BaseModel):
     frame: int
     title: Optional[str] = None
     time_range: Optional[str] = None
     delivery: Optional[str] = None
+    pause_after_s: Optional[float] = None   # nghỉ sau line; repo video cộng vào timeline
+    cues: list[Cue] = Field(default_factory=list)  # tính lại từ SCRIPT.md mỗi lần build
     merged: Optional[Merged] = None
     fragments: list[Fragment] = Field(default_factory=list)
 

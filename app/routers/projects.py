@@ -92,12 +92,13 @@ def state(ep: str) -> dict:
 
 def _state(ep: Path) -> dict:
     project = store.load(ep)
-    default_gap = config.load_config()["default_gap_s"]
+    cfg = config.load_config()
+    default_gap, voice = cfg["default_gap_s"], cfg["voice"]
     # bổ sung trạng thái dẫn xuất cho UI (stale badge, sẵn sàng merge)
     data = project.model_dump()
     for line, ldata in zip(project.lines, data["lines"]):
         ldata["ready_to_merge"] = line.ready_to_merge()
         for frag, fdata in zip(line.fragments, ldata["fragments"]):
-            fdata["stale"] = frag.is_stale(default_gap)
+            fdata["stale"] = frag.is_stale(default_gap, voice)
             fdata["has_selected"] = frag.selected_take() is not None
     return {"ep": str(ep), "project": data}
